@@ -18,7 +18,7 @@
     "@fastify/multipart": "^8.2.0",
     "@prisma/client": "^5.13.0",
     "bcrypt": "^5.1.1",
-    "bullmq": "^5.7.0",
+    "bullmq": "^5.75.2",
     "dayjs": "^1.11.11",
     "deliveriq-database": "*",
     "deliveriq-shared": "*",
