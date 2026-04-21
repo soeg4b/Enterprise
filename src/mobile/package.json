@@ -16,7 +16,7 @@
     "expo-image-picker": "~14.7.1",
     "expo-location": "~16.5.5",
     "expo-secure-store": "~12.8.1",
-    "expo-sqlite": "~13.2.2",
+    "expo-sqlite": "~55.0.15",
     "expo-status-bar": "~1.11.1",
     "react": "18.2.0",
     "react-native": "0.73.6"
