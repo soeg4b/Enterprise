@@ -13,7 +13,7 @@
     "deliveriq-shared": "*",
     "next": "^14.2.3",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",
