@@ -1,0 +1,49 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Jakarta
+    open-pull-requests-limit: 10
+    labels: ["deps", "javascript"]
+    groups:
+      prod-minor-patch:
+        update-types: ["minor", "patch"]
+      dev-deps:
+        dependency-type: development
+
+  - package-ecosystem: npm
+    directory: "/src/backend"
+    schedule: { interval: weekly }
+    labels: ["deps", "backend"]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: "/src/frontend"
+    schedule: { interval: weekly }
+    labels: ["deps", "frontend"]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: "/src/mobile"
+    schedule: { interval: weekly }
+    labels: ["deps", "mobile"]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly }
+    labels: ["deps", "ci"]
+
+  - package-ecosystem: docker
+    directory: "/src/backend"
+    schedule: { interval: weekly }
+    labels: ["deps", "docker"]
+
+  - package-ecosystem: docker
+    directory: "/src/frontend"
+    schedule: { interval: weekly }
+    labels: ["deps", "docker"]

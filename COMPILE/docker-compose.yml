@@ -1,0 +1,153 @@
+version: "3.9"
+
+# Base compose for local dev. For prod, overlay with docker-compose.prod.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: deliveriq-postgres
+    environment:
+      POSTGRES_USER: deliveriq
+      POSTGRES_PASSWORD: deliveriq
+      POSTGRES_DB: deliveriq
+      TZ: Asia/Jakarta
+    ports:
+      - "3602:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/docker/postgres-init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deliveriq -d deliveriq"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    container_name: deliveriq-redis
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "3603:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:latest
+    container_name: deliveriq-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: deliveriq
+      MINIO_ROOT_PASSWORD: deliveriqsecret
+    ports:
+      - "3604:9000"
+      - "3605:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: deliveriq-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: deliveriq
+      MINIO_ROOT_PASSWORD: deliveriqsecret
+      S3_BUCKET: deliveriq
+    entrypoint: ["/bin/sh", "/scripts/minio-init.sh"]
+    volumes:
+      - ./infra/docker/minio-init.sh:/scripts/minio-init.sh:ro
+    restart: "no"
+
+  adminer:
+    image: adminer:latest
+    container_name: deliveriq-adminer
+    restart: unless-stopped
+    profiles: ["dev"]
+    ports:
+      - "3606:8080"
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  backend:
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    image: ${BACKEND_IMAGE:-deliveriq-backend:local}
+    container_name: deliveriq-backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://deliveriq:deliveriq@postgres:5432/deliveriq?schema=public
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT: http://minio:9000
+      PORT: "3600"
+    ports:
+      - "3600:3600"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3600/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *default-logging
+
+  web:
+    build:
+      context: .
+      dockerfile: src/frontend/Dockerfile
+    image: ${FRONTEND_IMAGE:-deliveriq-frontend:local}
+    container_name: deliveriq-web
+    env_file: .env
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3600}
+      PORT: "3601"
+    ports:
+      - "3601:3601"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3601/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *default-logging
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

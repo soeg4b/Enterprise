@@ -1,0 +1,29 @@
+{
+  "name": "deliveriq-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "deliveriq-shared": "*",
+    "expo": "~50.0.0",
+    "expo-image-picker": "~14.7.1",
+    "expo-location": "~16.5.5",
+    "expo-secure-store": "~12.8.1",
+    "expo-sqlite": "~13.2.2",
+    "expo-status-bar": "~1.11.1",
+    "react": "18.2.0",
+    "react-native": "0.73.6"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@types/react": "~18.2.45",
+    "typescript": "^5.4.5"
+  }
+}

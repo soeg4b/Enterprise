@@ -1,0 +1,12 @@
+{
+  "app.title": "PDC Enterprise",
+  "nav.dashboard": "Dashboard",
+  "nav.orders": "Program",
+  "nav.imports": "Impor",
+  "nav.notifications": "Notifikasi",
+  "nav.audit": "Audit",
+  "auth.login": "Masuk",
+  "auth.email": "Email",
+  "auth.password": "Kata sandi",
+  "common.loading": "Memuat…"
+}

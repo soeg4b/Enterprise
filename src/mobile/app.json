@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "PDC Enterprise Field",
+    "slug": "deliveriq-field",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": { "resizeMode": "contain", "backgroundColor": "#0f172a" },
+    "assetBundlePatterns": ["**/*"],
+    "ios": { "supportsTablet": true },
+    "android": { "adaptiveIcon": { "backgroundColor": "#0f172a" } },
+    "plugins": ["expo-image-picker", "expo-location", "expo-secure-store"]
+  }
+}

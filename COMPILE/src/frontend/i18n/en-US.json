@@ -1,0 +1,12 @@
+{
+  "app.title": "PDC Enterprise",
+  "nav.dashboard": "Dashboard",
+  "nav.orders": "Programs",
+  "nav.imports": "Imports",
+  "nav.notifications": "Notifications",
+  "nav.audit": "Audit",
+  "auth.login": "Sign in",
+  "auth.email": "Email",
+  "auth.password": "Password",
+  "common.loading": "Loading…"
+}

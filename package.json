@@ -1,0 +1,33 @@
+{
+  "name": "deliveriq",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeliverIQ — Enterprise Project Delivery Dashboard (monorepo)",
+  "workspaces": [
+    "src/shared",
+    "src/backend",
+    "src/frontend",
+    "src/mobile",
+    "src/database",
+    "tests"
+  ],
+  "scripts": {
+    "build:shared": "npm -w deliveriq-shared run build",
+    "dev:backend": "npm -w deliveriq-backend run dev",
+    "dev:frontend": "npm -w deliveriq-frontend run dev",
+    "dev:mobile": "npm -w deliveriq-mobile run start",
+    "build:backend": "npm -w deliveriq-backend run build",
+    "build:frontend": "npm -w deliveriq-frontend run build",
+    "prisma:generate": "npm -w deliveriq-database run prisma:generate",
+    "prisma:migrate": "npm -w deliveriq-database run prisma:migrate",
+    "prisma:seed": "npm -w deliveriq-database run seed",
+    "typecheck": "npm -w deliveriq-shared run typecheck && npm -w deliveriq-backend run typecheck && npm -w deliveriq-frontend run typecheck && npm -w deliveriq-mobile run typecheck"
+  },
+  "engines": {
+    "node": ">=20.10.0",
+    "npm": ">=10.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

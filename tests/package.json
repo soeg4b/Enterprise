@@ -1,0 +1,29 @@
+{
+  "name": "deliveriq-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --reporter=default",
+    "test:watch": "vitest",
+    "test:unit": "vitest run unit",
+    "test:integration": "vitest run integration",
+    "test:e2e": "playwright test --config=playwright.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "deliveriq-shared": "*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0",
+    "@types/node": "^20.12.7",
+    "@types/supertest": "^6.0.2",
+    "fastify": "^4.27.0",
+    "supertest": "^7.0.0",
+    "typescript": "^5.4.5",
+    "vite-tsconfig-paths": "^4.3.2",
+    "vitest": "^1.6.0",
+    "zod": "^3.23.6",
+    "dayjs": "^1.11.11"
+  }
+}

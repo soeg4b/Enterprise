@@ -1,0 +1,925 @@
+// =============================================================================
+// DeliverIQ — Enterprise Project Delivery Dashboard
+// Prisma schema (PostgreSQL 15)
+// Stage 5 — Data Agent
+// Conventions:
+//   - All money in Decimal(18,2) (IDR has no minor unit, but we keep cents-safe).
+//   - All timestamps stored UTC; presentation in WIB by app layer.
+//   - Soft delete via deletedAt (nullable timestamp).
+//   - Optimistic concurrency via `version` Int (incremented in app/tx).
+//   - Multi-tenant ready: every primary domain table has nullable tenantId.
+//     For MVP single-tenant pilot tenantId IS NULL; indexes prefix-friendly
+//     for future enablement.
+//   - Every write side table has createdAt/updatedAt + createdById/updatedById.
+//   - Audit & ImportRow are append-only (no soft-delete, no version).
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgcrypto, pg_trgm, citext]
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum UserRole {
+  AD   // Admin
+  BOD
+  DH   // Department Head
+  PM
+  FE   // Field / Mitra (internal proxy)
+  FN   // Finance
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  DISABLED
+}
+
+enum OrderType {
+  NEW
+  UPGRADE
+  RENEWAL
+  RELOCATION
+  TERMINATION
+}
+
+enum ProductCategory {
+  CONNECTIVITY     // MPLS, Metro-E, IPLC
+  DATACENTER
+  CLOUD
+  MANAGED_SERVICE
+  ICT_SOLUTION
+  OTHER
+}
+
+enum SiteType {
+  NE   // Near End
+  FE   // Far End
+  POP  // Point of Presence (single-ended)
+}
+
+enum SiteOwner {
+  CUSTOMER
+  TELCO        // owned by us
+  THIRD_PARTY
+}
+
+enum MilestoneType {
+  STIP_2_4
+  STIP_10
+  DESIGN
+  PROCUREMENT
+  KOM
+  MATERIAL_READY
+  MOS
+  INSTALLATION
+  RFS
+  HANDOVER
+}
+
+enum MilestoneStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+  BLOCKED
+}
+
+enum OverallStatus {
+  ON_TRACK
+  AT_RISK
+  DELAY
+}
+
+enum ClaimType {
+  OTC   // One-Time Charge
+  MRC   // Monthly Recurring Charge
+}
+
+enum ClaimStatus {
+  PENDING
+  SUBMITTED
+  PAID
+  CANCELLED
+}
+
+enum ImportStatus {
+  UPLOADED
+  PARSING
+  VALIDATED
+  COMMITTING
+  COMMITTED
+  FAILED
+  ROLLED_BACK
+}
+
+enum ImportRowStatus {
+  PENDING
+  VALID
+  INVALID
+  COMMITTED
+  SKIPPED
+}
+
+enum NotificationKind {
+  MILESTONE_OVERDUE
+  WARNING_RAISED
+  RFS_ACHIEVED
+  CLAIM_STATUS_CHANGED
+  MENTION
+  IMPORT_DONE
+  GENERIC
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WHATSAPP   // stub
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  RBAC_DENIED
+  IMPORT_COMMIT
+  IMPORT_ROLLBACK
+  EXPORT
+}
+
+enum SyncOp {
+  UPSERT
+  DELETE
+}
+
+enum SyncStatus {
+  PENDING
+  ACCEPTED
+  REJECTED_STALE
+  REJECTED_INVALID
+}
+
+enum CapexCategory {
+  MATERIAL
+  INSTALLATION
+  TRANSPORT
+  OTHER
+}
+
+// =============================================================================
+// TENANT (multi-tenant scaffold; MVP single tenant)
+// =============================================================================
+
+model Tenant {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users        User[]
+  departments  Department[]
+  customers    Customer[]
+  programs     Program[]
+  orders       Order[]
+  vendors      Vendor[]
+}
+
+// =============================================================================
+// IDENTITY & ACCESS
+// =============================================================================
+
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  tenantId      String?    @db.Uuid
+  email         String     @db.Citext
+  passwordHash  String
+  fullName      String
+  phone         String?
+  role          UserRole
+  status        UserStatus @default(ACTIVE)
+  locale        String     @default("id-ID")
+  departmentId  String?    @db.Uuid
+  lastLoginAt   DateTime?
+  failedLoginCount Int     @default(0)
+  lockedUntil   DateTime?
+  // optimistic lock + audit
+  version       Int        @default(1)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
+  createdById   String?    @db.Uuid
+  updatedById   String?    @db.Uuid
+
+  tenant       Tenant?     @relation(fields: [tenantId], references: [id])
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  ownedOrders        Order[]              @relation("OrderOwner")
+  ownedSos           SO[]                 @relation("SoOwner")
+  ownedSows          SOW[]                @relation("SowOwner")
+  assignedSites      Site[]               @relation("SiteAssignedFieldUser")
+  milestoneEvents    MilestoneEvent[]
+  fieldUpdates       FieldUpdate[]
+  notifications      Notification[]
+  refreshTokens      RefreshToken[]
+  outbox             SyncOutbox[]
+  syncCursor         SyncCursor[]
+  importJobs         ImportJob[]
+  auditLogs          AuditLog[]           @relation("AuditActor")
+  approvalsGiven     MilestoneEvent[]     @relation("BackdateApprover")
+
+  @@unique([tenantId, email], map: "user_tenant_email_uq")
+  @@index([tenantId, role, status])
+  @@index([departmentId])
+  @@index([deletedAt])
+}
+
+model RefreshToken {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  tokenHash   String   @unique
+  issuedAt    DateTime @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  replacedById String? @db.Uuid
+  ip          String?
+  userAgent   String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Role {
+  // Optional fine-grained roles for future. MVP relies on UserRole enum.
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  permissions Json     // policy doc; advisory in MVP
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// =============================================================================
+// ORG / DOMAIN MASTER
+// =============================================================================
+
+model Department {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String?  @db.Uuid
+  code      String
+  name      String
+  parentId  String?  @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  tenant   Tenant?      @relation(fields: [tenantId], references: [id])
+  parent   Department?  @relation("DeptParent", fields: [parentId], references: [id])
+  children Department[] @relation("DeptParent")
+  users    User[]
+  programs Program[]
+  orders   Order[]
+
+  @@unique([tenantId, code], map: "dept_tenant_code_uq")
+  @@index([parentId])
+}
+
+model Customer {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String?  @db.Uuid
+  code        String
+  name        String
+  industry    String?
+  npwp        String?  // tax id
+  picName     String?
+  picEmail    String?
+  picPhone    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  version     Int      @default(1)
+
+  tenant   Tenant?   @relation(fields: [tenantId], references: [id])
+  orders   Order[]
+  programs Program[]
+
+  @@unique([tenantId, code], map: "customer_tenant_code_uq")
+  @@index([tenantId, name])
+  // pg_trgm GIN index added via raw migration:
+  //   CREATE INDEX customer_name_trgm_idx ON "Customer" USING GIN (name gin_trgm_ops);
+}
+
+model Program {
+  // Optional grouping above Order (e.g., a multi-year customer program / framework).
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String?  @db.Uuid
+  code         String
+  name         String
+  customerId   String?  @db.Uuid
+  departmentId String?  @db.Uuid
+  capexBudget  Decimal? @db.Decimal(18, 2)
+  startDate    DateTime?
+  endDate      DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+  version      Int      @default(1)
+
+  tenant     Tenant?     @relation(fields: [tenantId], references: [id])
+  customer   Customer?   @relation(fields: [customerId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  orders     Order[]
+  capexBudgets CapexBudget[]
+
+  @@unique([tenantId, code], map: "program_tenant_code_uq")
+  @@index([customerId])
+  @@index([departmentId])
+}
+
+model Vendor {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String?  @db.Uuid
+  code      String
+  name      String
+  picName   String?
+  picEmail  String?
+  picPhone  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  version   Int      @default(1)
+
+  tenant      Tenant?            @relation(fields: [tenantId], references: [id])
+  assignments VendorAssignment[]
+
+  @@unique([tenantId, code], map: "vendor_tenant_code_uq")
+  @@index([tenantId, isActive])
+}
+
+// =============================================================================
+// ORDER / SO / SOW / SITE / SEGMENT
+// =============================================================================
+
+model Order {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String?  @db.Uuid
+  orderNumber     String
+  programId       String?  @db.Uuid
+  customerId      String   @db.Uuid
+  departmentId    String?  @db.Uuid
+  ownerUserId     String?  @db.Uuid
+  type            OrderType
+  productCategory ProductCategory
+  description     String?
+  contractValue   Decimal  @db.Decimal(18, 2)
+  otcAmount       Decimal  @db.Decimal(18, 2) @default(0)
+  mrcAmount       Decimal  @db.Decimal(18, 2) @default(0)
+  capexBudget     Decimal  @db.Decimal(18, 2) @default(0)
+  currency        String   @default("IDR")
+  startDate       DateTime?
+  endDate         DateTime?
+  signedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+  version         Int      @default(1)
+  createdById     String?  @db.Uuid
+  updatedById     String?  @db.Uuid
+
+  tenant     Tenant?     @relation(fields: [tenantId], references: [id])
+  program    Program?    @relation(fields: [programId], references: [id])
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  owner      User?       @relation("OrderOwner", fields: [ownerUserId], references: [id])
+  documents  OrderDocument[]
+  sos        SO[]
+
+  @@unique([tenantId, orderNumber], map: "order_tenant_number_uq")
+  @@index([tenantId, customerId])
+  @@index([tenantId, departmentId])
+  @@index([ownerUserId])
+  @@index([deletedAt])
+}
+
+model OrderDocument {
+  id         String   @id @default(uuid()) @db.Uuid
+  orderId    String   @db.Uuid
+  kind       String   // contract, addendum, po, ...
+  fileName   String
+  s3Key      String
+  sha256     String
+  sizeBytes  Int
+  uploadedById String? @db.Uuid
+  createdAt  DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@unique([orderId, sha256])
+}
+
+model SO {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String?  @db.Uuid
+  orderId      String   @db.Uuid
+  soNumber     String
+  scope        String?
+  ownerUserId  String?  @db.Uuid
+  startDate    DateTime?
+  endDate      DateTime?
+  capexBudget  Decimal? @db.Decimal(18, 2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+  version      Int      @default(1)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  owner User? @relation("SoOwner", fields: [ownerUserId], references: [id])
+  sows  SOW[]
+  capexBudgets CapexBudget[]
+
+  @@unique([tenantId, soNumber], map: "so_tenant_number_uq")
+  @@index([orderId])
+  @@index([ownerUserId])
+}
+
+model SOW {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String?  @db.Uuid
+  soId          String   @db.Uuid
+  sowNumber     String
+  scope         String?
+  ownerUserId   String?  @db.Uuid
+  planRfsDate   DateTime
+  actualRfsDate DateTime?
+
+  // Engine outputs (denormalized for read speed; recomputed by worker)
+  progressPct       Decimal       @db.Decimal(5, 2) @default(0)
+  gapDays           Int           @default(0)
+  warningLevel      OverallStatus @default(ON_TRACK)
+  warningReason     String?
+  lastComputedAt    DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  version     Int      @default(1)
+
+  so          SO          @relation(fields: [soId], references: [id], onDelete: Cascade)
+  owner       User?       @relation("SowOwner", fields: [ownerUserId], references: [id])
+  sites       Site[]
+  segments    Segment[]
+  milestones  Milestone[]
+  vendorAssignments VendorAssignment[]
+  claims      RevenueClaim[]
+
+  @@unique([tenantId, sowNumber], map: "sow_tenant_number_uq")
+  @@index([soId])
+  @@index([planRfsDate])
+  @@index([warningLevel, planRfsDate])
+  @@index([ownerUserId, warningLevel])
+  @@index([deletedAt])
+}
+
+model Site {
+  id            String     @id @default(uuid()) @db.Uuid
+  tenantId      String?    @db.Uuid
+  sowId         String     @db.Uuid
+  code          String
+  name          String
+  type          SiteType
+  owner         SiteOwner  @default(CUSTOMER)
+  address       String?
+  city          String?
+  province      String?
+  latitude      Decimal?   @db.Decimal(9, 6)
+  longitude     Decimal?   @db.Decimal(9, 6)
+  customerLocId String?
+  assignedFieldUserId String? @db.Uuid
+
+  // Per-site engine outputs (mirrors SOW for site-level dashboards)
+  progressPct    Decimal       @db.Decimal(5, 2) @default(0)
+  gapDays        Int           @default(0)
+  warningLevel   OverallStatus @default(ON_TRACK)
+  lastComputedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  version   Int      @default(1)
+
+  sow              SOW         @relation(fields: [sowId], references: [id], onDelete: Cascade)
+  assignedFieldUser User?      @relation("SiteAssignedFieldUser", fields: [assignedFieldUserId], references: [id])
+  milestones       Milestone[]
+  fieldUpdates     FieldUpdate[]
+  photos           Photo[]
+  segmentsAsNe     Segment[]   @relation("SegmentNe")
+  segmentsAsFe     Segment[]   @relation("SegmentFe")
+
+  @@unique([tenantId, code], map: "site_tenant_code_uq")
+  @@index([sowId])
+  @@index([assignedFieldUserId, updatedAt])  // mobile delta sync
+  @@index([warningLevel])
+  @@index([type])
+}
+
+model Segment {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String?  @db.Uuid
+  sowId     String   @db.Uuid
+  code      String
+  neSiteId  String   @db.Uuid
+  feSiteId  String   @db.Uuid
+  bandwidth String?
+  distanceKm Decimal? @db.Decimal(9, 3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  version   Int      @default(1)
+
+  sow    SOW  @relation(fields: [sowId], references: [id], onDelete: Cascade)
+  neSite Site @relation("SegmentNe", fields: [neSiteId], references: [id])
+  feSite Site @relation("SegmentFe", fields: [feSiteId], references: [id])
+
+  @@unique([tenantId, code], map: "segment_tenant_code_uq")
+  @@index([sowId])
+  @@index([neSiteId])
+  @@index([feSiteId])
+}
+
+// =============================================================================
+// VENDOR ASSIGNMENT
+// =============================================================================
+
+model VendorAssignment {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String?  @db.Uuid
+  sowId      String   @db.Uuid
+  vendorId   String   @db.Uuid
+  spkNumber  String?
+  spkDate    DateTime?
+  poNumber   String?
+  poDate     DateTime?
+  amount     Decimal? @db.Decimal(18, 2)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
+  version    Int      @default(1)
+
+  sow    SOW    @relation(fields: [sowId], references: [id], onDelete: Cascade)
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+
+  @@unique([sowId, vendorId, spkNumber], map: "vendor_assign_sow_vendor_spk_uq")
+  @@index([vendorId])
+  @@index([sowId])
+}
+
+// =============================================================================
+// MILESTONE + EVENTS
+// =============================================================================
+
+model Milestone {
+  id            String          @id @default(uuid()) @db.Uuid
+  tenantId      String?         @db.Uuid
+  sowId         String          @db.Uuid
+  siteId        String?         @db.Uuid     // optional: per-site milestone
+  type          MilestoneType
+  sequence      Int             // 1..10 (HANDOVER=10)
+  weight        Int             // sum across active types per SOW = 100
+  status        MilestoneStatus @default(NOT_STARTED)
+  planDate      DateTime?
+  actualDate    DateTime?
+  remark        String?
+  blockedReason String?
+  // Domain-event derived
+  overdueDays   Int             @default(0)
+  lastEventAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  version   Int      @default(1)
+
+  sow      SOW              @relation(fields: [sowId], references: [id], onDelete: Cascade)
+  site     Site?            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  events   MilestoneEvent[]
+  photos   Photo[]
+
+  @@unique([sowId, siteId, type], map: "milestone_sow_site_type_uq")
+  @@index([sowId, sequence])
+  @@index([siteId, type])
+  @@index([status, planDate])
+  @@index([planDate])           // overdue scan
+  @@index([updatedAt])           // mobile delta sync
+}
+
+model MilestoneEvent {
+  // Append-only history of milestone state changes.
+  id              String          @id @default(uuid()) @db.Uuid
+  milestoneId     String          @db.Uuid
+  fromStatus      MilestoneStatus?
+  toStatus        MilestoneStatus
+  actualDate      DateTime?
+  remark          String?
+  actorUserId     String?         @db.Uuid
+  approvedById    String?         @db.Uuid   // backdate >30d approver (DH)
+  occurredAt      DateTime        @default(now())
+  source          String          @default("web")  // web | mobile | importer | system
+  clientId        String?         // mobile idempotency key
+  createdAt       DateTime        @default(now())
+
+  milestone   Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  actor       User?     @relation(fields: [actorUserId], references: [id])
+  approvedBy  User?     @relation("BackdateApprover", fields: [approvedById], references: [id])
+
+  @@index([milestoneId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@unique([clientId])
+}
+
+// =============================================================================
+// MOBILE FIELD UPDATES + PHOTOS
+// =============================================================================
+
+model FieldUpdate {
+  // A grouped field check-in / inspection record from mobile.
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String?  @db.Uuid
+  siteId       String   @db.Uuid
+  userId       String   @db.Uuid
+  kind         String   // CHECK_IN | INSPECTION | PROGRESS_UPDATE
+  notes        String?
+  latitude     Decimal? @db.Decimal(9, 6)
+  longitude    Decimal? @db.Decimal(9, 6)
+  accuracyM    Decimal? @db.Decimal(7, 2)
+  occurredAt   DateTime
+  clientId     String?  @unique          // mobile idempotency
+  createdAt    DateTime @default(now())
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+  photos Photo[]
+
+  @@index([siteId, occurredAt])
+  @@index([userId, occurredAt])
+}
+
+model Photo {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String?  @db.Uuid
+  siteId        String?  @db.Uuid
+  milestoneId   String?  @db.Uuid
+  fieldUpdateId String?  @db.Uuid
+  s3Key         String
+  sha256        String
+  mimeType      String
+  sizeBytes     Int
+  takenAt       DateTime?
+  latitude      Decimal? @db.Decimal(9, 6)
+  longitude     Decimal? @db.Decimal(9, 6)
+  uploadedById  String?  @db.Uuid
+  createdAt     DateTime @default(now())
+
+  site         Site?        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  milestone    Milestone?   @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  fieldUpdate  FieldUpdate? @relation(fields: [fieldUpdateId], references: [id], onDelete: Cascade)
+
+  @@unique([sha256])             // dedup
+  @@index([siteId])
+  @@index([milestoneId])
+  @@index([fieldUpdateId])
+}
+
+// =============================================================================
+// REVENUE CLAIM (OTC + MRC) + CAPEX
+// =============================================================================
+
+model RevenueClaim {
+  id              String      @id @default(uuid()) @db.Uuid
+  tenantId        String?     @db.Uuid
+  sowId           String      @db.Uuid
+  type            ClaimType
+  status          ClaimStatus @default(PENDING)
+  amount          Decimal     @db.Decimal(18, 2)
+  currency        String      @default("IDR")
+  periodMonth     Int?        // 1..12 (MRC only)
+  periodYear      Int?        // YYYY  (MRC only)
+  invoiceNumber   String?
+  rfsDate         DateTime?   // snapshot from SOW.actualRfsDate
+  submittedDate   DateTime?
+  paidDate        DateTime?
+  cancelledReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  version   Int      @default(1)
+
+  sow SOW @relation(fields: [sowId], references: [id], onDelete: Cascade)
+
+  @@unique([sowId, type, periodYear, periodMonth], map: "claim_sow_type_period_uq")
+  @@index([status, createdAt])
+  @@index([tenantId, status])
+}
+
+model CapexBudget {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String?  @db.Uuid
+  programId   String?  @db.Uuid
+  soId        String?  @db.Uuid
+  category    CapexCategory
+  budget      Decimal  @db.Decimal(18, 2)
+  fiscalYear  Int
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  version     Int      @default(1)
+
+  program  Program?       @relation(fields: [programId], references: [id])
+  so       SO?            @relation(fields: [soId], references: [id])
+  entries  CapexEntry[]
+
+  @@index([programId, fiscalYear])
+  @@index([soId, fiscalYear])
+}
+
+model CapexEntry {
+  id            String   @id @default(uuid()) @db.Uuid
+  capexBudgetId String   @db.Uuid
+  category      CapexCategory
+  amount        Decimal  @db.Decimal(18, 2)
+  postedDate    DateTime
+  reference     String?
+  notes         String?
+  createdById   String?  @db.Uuid
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  capexBudget CapexBudget @relation(fields: [capexBudgetId], references: [id], onDelete: Cascade)
+
+  @@index([capexBudgetId, postedDate])
+}
+
+// =============================================================================
+// NOTIFICATIONS
+// =============================================================================
+
+model Notification {
+  id         String              @id @default(uuid()) @db.Uuid
+  tenantId   String?             @db.Uuid
+  userId     String              @db.Uuid
+  kind       NotificationKind
+  channel    NotificationChannel @default(IN_APP)
+  title      String
+  body       String
+  payload    Json?
+  link       String?
+  readAt     DateTime?
+  sentAt     DateTime?
+  createdAt  DateTime            @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@index([kind, createdAt])
+}
+
+// =============================================================================
+// AUDIT LOG (append-only)
+// =============================================================================
+
+model AuditLog {
+  id          BigInt      @id @default(autoincrement())
+  tenantId    String?     @db.Uuid
+  occurredAt  DateTime    @default(now())
+  actorUserId String?     @db.Uuid
+  action      AuditAction
+  entityType  String      // "Order","SOW","Milestone",...
+  entityId    String?
+  before      Json?
+  after       Json?
+  ip          String?
+  userAgent   String?
+  requestId   String?
+  traceId     String?
+  prevHash    String?     // hash chain (Phase 2 hardening; nullable in MVP)
+  hash        String?
+
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id])
+
+  @@index([entityType, entityId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([occurredAt])
+}
+
+// =============================================================================
+// IMPORT JOBS (Excel)
+// =============================================================================
+
+model ImportJob {
+  id            String       @id @default(uuid()) @db.Uuid
+  tenantId      String?      @db.Uuid
+  fileName      String
+  s3Key         String
+  sha256        String       // dedup
+  sizeBytes     Int
+  status        ImportStatus @default(UPLOADED)
+  totalRows     Int          @default(0)
+  validRows     Int          @default(0)
+  invalidRows   Int          @default(0)
+  committedRows Int          @default(0)
+  report        Json?        // summary
+  uploadedById  String       @db.Uuid
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  rolledBackAt  DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  uploadedBy User       @relation(fields: [uploadedById], references: [id])
+  rows       ImportRow[]
+
+  @@unique([sha256])         // idempotency on same file
+  @@index([status, createdAt])
+}
+
+model ImportRow {
+  id          BigInt          @id @default(autoincrement())
+  importJobId String          @db.Uuid
+  sheetName   String
+  rowNumber   Int
+  entityType  String          // "Order","SO","SOW","Site","Milestone","Vendor"
+  naturalKey  String?         // e.g., so_number, site_code
+  rawData     Json
+  normalized  Json?
+  status      ImportRowStatus @default(PENDING)
+  errors      Json?           // [{path,msg}]
+  committedEntityId String?
+  createdAt   DateTime        @default(now())
+
+  importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+
+  @@index([importJobId, sheetName])
+  @@index([importJobId, status])
+  @@index([entityType, naturalKey])
+}
+
+// =============================================================================
+// MOBILE SYNC
+// =============================================================================
+
+model SyncOutbox {
+  // Server-side persisted record of accepted/rejected client outbox items.
+  // Useful for debugging and replay; per-item idempotency.
+  id              BigInt     @id @default(autoincrement())
+  userId          String     @db.Uuid
+  clientId        String     @unique           // uuid from client
+  entityType      String
+  entityId        String?
+  op              SyncOp
+  payload         Json
+  clientUpdatedAt DateTime
+  status          SyncStatus
+  serverState     Json?
+  errorCode       String?
+  errorDetail     String?
+  receivedAt      DateTime   @default(now())
+  processedAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, receivedAt])
+  @@index([entityType, entityId])
+}
+
+model SyncCursor {
+  // Per-user delta watermark for /sync/pull
+  id           BigInt   @id @default(autoincrement())
+  userId       String   @db.Uuid
+  scope        String   // "mine" | "site:{id}" ...
+  lastSyncedAt DateTime
+  token        String   // opaque token returned to client
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scope])
+}

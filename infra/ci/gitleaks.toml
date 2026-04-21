@@ -1,0 +1,35 @@
+# Gitleaks config — DeliverIQ
+# Extends default rules and adds project-specific allowlist.
+title = "DeliverIQ Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowed paths and known placeholders"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)\.env\.production\.example$''',
+  '''(^|/)tests/.*''',
+  '''(^|/)docs/.*''',
+  '''(^|/)\.artifacts/.*''',
+]
+regexes = [
+  '''change-me-to-a-(?:different-)?32-byte-random-secret''',
+  '''ChangeMe!2026''',
+  '''deliveriqsecret''',
+  '''test-(jwt|refresh)-secret-[a-z0-9-]+''',
+]
+commits = []
+
+[[rules]]
+id = "deliveriq-jwt-secret"
+description = "Hardcoded JWT secret-like string"
+regex = '''(?i)(jwt|refresh)[_-]?secret\s*[:=]\s*["'][A-Za-z0-9+/=_-]{24,}["']'''
+tags = ["secret", "jwt"]
+
+[[rules]]
+id = "deliveriq-aws-key"
+description = "AWS access key id"
+regex = '''AKIA[0-9A-Z]{16}'''
+tags = ["aws", "secret"]

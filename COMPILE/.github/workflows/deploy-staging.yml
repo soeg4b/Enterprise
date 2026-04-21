@@ -1,0 +1,158 @@
+name: Deploy — Staging
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (default: main)"
+        required: false
+        default: main
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BACKEND: ghcr.io/${{ github.repository }}/backend
+  IMAGE_FRONTEND: ghcr.io/${{ github.repository }}/frontend
+
+jobs:
+  guard:
+    name: Guard (require CI green)
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    steps:
+      - run: echo "Proceeding with staging deploy."
+
+  build-and-push:
+    name: Build & push images to GHCR
+    needs: guard
+    runs-on: ubuntu-latest
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+      - id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build & push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: src/backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_BACKEND }}:sha-${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE_BACKEND }}:staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build & push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: src/frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_FRONTEND }}:sha-${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE_FRONTEND }}:staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  migrate:
+    name: Prisma migrate deploy (staging DB)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: npx prisma migrate deploy --schema=src/database/prisma/schema.prisma
+
+  deploy:
+    name: Deploy to staging host (SSH compose)
+    needs: [build-and-push, migrate]
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.deliveriq.example.com
+    steps:
+      - uses: actions/checkout@v4
+      # Path A: SSH-based deploy onto a host running docker compose.
+      # Required secrets:
+      #   STAGING_SSH_HOST, STAGING_SSH_USER, STAGING_SSH_KEY (private key),
+      #   STAGING_DEPLOY_PATH (remote dir containing docker-compose.yml + .env)
+      - name: SSH deploy via docker compose
+        if: ${{ secrets.STAGING_SSH_HOST != '' }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.STAGING_DEPLOY_PATH }}"
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            export BACKEND_IMAGE="${{ env.IMAGE_BACKEND }}:sha-${{ needs.build-and-push.outputs.sha_short }}"
+            export FRONTEND_IMAGE="${{ env.IMAGE_FRONTEND }}:sha-${{ needs.build-and-push.outputs.sha_short }}"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
+      - name: Manual deploy reminder (no SSH secrets configured)
+        if: ${{ secrets.STAGING_SSH_HOST == '' }}
+        run: |
+          echo "::warning::No STAGING_SSH_HOST secret. Pull images manually:"
+          echo "docker pull ${{ env.IMAGE_BACKEND }}:sha-${{ needs.build-and-push.outputs.sha_short }}"
+          echo "docker pull ${{ env.IMAGE_FRONTEND }}:sha-${{ needs.build-and-push.outputs.sha_short }}"
+
+  smoke-test:
+    name: Smoke test (/healthz)
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Curl /healthz
+        env:
+          HEALTH_URL: ${{ secrets.STAGING_HEALTH_URL }}
+        run: |
+          set -e
+          if [ -z "${HEALTH_URL:-}" ]; then
+            echo "::warning::STAGING_HEALTH_URL not set; skipping smoke."
+            exit 0
+          fi
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null; then
+              echo "Healthy."
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying..."
+            sleep 6
+          done
+          echo "::error::Smoke test failed against $HEALTH_URL"
+          exit 1

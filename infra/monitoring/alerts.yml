@@ -1,0 +1,108 @@
+groups:
+  - name: deliveriq-backend
+    interval: 30s
+    rules:
+      - alert: BackendDown
+        expr: up{job="deliveriq-backend"} == 0
+        for: 2m
+        labels: { severity: critical, team: backend }
+        annotations:
+          summary: "Backend instance down ({{ $labels.instance }})"
+          description: "Prometheus has not been able to scrape /metrics for 2m."
+          runbook: "infra/RUNBOOK.md#backend-down"
+
+      - alert: BackendHigh5xxRate
+        expr: |
+          sum by (instance) (rate(http_requests_total{job="deliveriq-backend",status=~"5.."}[5m]))
+            /
+          sum by (instance) (rate(http_requests_total{job="deliveriq-backend"}[5m]))
+            > 0.02
+        for: 10m
+        labels: { severity: high, team: backend }
+        annotations:
+          summary: "5xx error rate >2% for 10m on {{ $labels.instance }}"
+          runbook: "infra/RUNBOOK.md#high-error-rate"
+
+      - alert: BackendHighP95Latency
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, route) (rate(http_request_duration_seconds_bucket{job="deliveriq-backend"}[5m]))
+          ) > 1.0
+        for: 10m
+        labels: { severity: high, team: backend }
+        annotations:
+          summary: "P95 latency >1s on route {{ $labels.route }}"
+          runbook: "infra/RUNBOOK.md#latency"
+
+      - alert: LoginFailureSpike
+        expr: increase(auth_login_failures_total[5m]) > 50
+        for: 5m
+        labels: { severity: high, team: security }
+        annotations:
+          summary: "Login failures >50/5m — possible brute force"
+          runbook: "infra/RUNBOOK.md#brute-force"
+
+  - name: deliveriq-queues
+    interval: 30s
+    rules:
+      - alert: BullMQQueueBacklog
+        expr: bullmq_queue_waiting_jobs{queue=~"milestone|import|notification"} > 500
+        for: 10m
+        labels: { severity: high, team: backend }
+        annotations:
+          summary: "Queue {{ $labels.queue }} backlog > 500 jobs"
+          runbook: "infra/RUNBOOK.md#queue-backlog"
+
+      - alert: MilestoneWorkerStalled
+        expr: |
+          (time() - max(bullmq_worker_last_completed_timestamp_seconds{queue="milestone"})) > 600
+          and on() (bullmq_queue_waiting_jobs{queue="milestone"} > 0)
+        for: 5m
+        labels: { severity: critical, team: backend }
+        annotations:
+          summary: "Milestone worker has not completed a job in 10m while backlog exists"
+          runbook: "infra/RUNBOOK.md#worker-stalled"
+
+  - name: deliveriq-database
+    interval: 30s
+    rules:
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 2m
+        labels: { severity: critical, team: data }
+        annotations:
+          summary: "Postgres instance down"
+          runbook: "infra/RUNBOOK.md#postgres-down"
+
+      - alert: DBConnectionPoolSaturated
+        expr: |
+          (pg_stat_activity_count / on(instance) pg_settings_max_connections) > 0.85
+        for: 10m
+        labels: { severity: high, team: data }
+        annotations:
+          summary: "Postgres connection pool >85% saturated"
+          runbook: "infra/RUNBOOK.md#db-pool"
+
+      - alert: PostgresReplicationLag
+        expr: pg_replication_lag_seconds > 30
+        for: 5m
+        labels: { severity: high, team: data }
+        annotations:
+          summary: "Postgres replication lag >30s"
+
+  - name: deliveriq-infra
+    interval: 30s
+    rules:
+      - alert: HostHighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.90
+        for: 15m
+        labels: { severity: warning, team: devops }
+        annotations:
+          summary: "Host memory >90% on {{ $labels.instance }}"
+
+      - alert: HostDiskWillFill24h
+        expr: predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}[6h], 24*3600) < 0
+        for: 30m
+        labels: { severity: high, team: devops }
+        annotations:
+          summary: "Disk projected to fill in <24h on {{ $labels.instance }}"

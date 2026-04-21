@@ -1,0 +1,19 @@
+# Trivy baseline configuration — fail on HIGH/CRITICAL fixed CVEs.
+format: table
+exit-code: 1
+ignore-unfixed: true
+severity:
+  - HIGH
+  - CRITICAL
+scanners:
+  - vuln
+  - secret
+  - misconfig
+timeout: 10m
+vulnerability:
+  type:
+    - os
+    - library
+secret:
+  config: infra/ci/gitleaks.toml
+# .trivyignore can be added to suppress accepted CVEs with justification.

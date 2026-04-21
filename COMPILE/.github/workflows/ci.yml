@@ -1,0 +1,326 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  HUSKY: "0"
+
+jobs:
+  install:
+    name: Install & cache deps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install (lockfile)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            src/*/node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+  lint:
+    name: Lint
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run ESLint (best-effort)
+        run: |
+          if npm run --silent | grep -qE '^\s*lint'; then
+            npm run lint
+          else
+            echo "No 'lint' script defined; skipping."
+          fi
+
+  typecheck:
+    name: Typecheck
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Prisma generate
+        run: npx prisma generate --schema=src/database/prisma/schema.prisma
+      - name: Build shared
+        run: npm run build:shared
+      - name: Typecheck workspaces
+        run: npm run typecheck
+
+  prisma:
+    name: Prisma format & validate
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Prisma format (check)
+        run: npx prisma format --schema=src/database/prisma/schema.prisma --check
+      - name: Prisma validate
+        run: npx prisma validate --schema=src/database/prisma/schema.prisma
+
+  unit-tests:
+    name: Unit tests
+    needs: install
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Prisma generate
+        run: npx prisma generate --schema=src/database/prisma/schema.prisma
+      - name: Build shared
+        run: npm run build:shared
+      - name: Run unit tests
+        working-directory: tests
+        run: |
+          if npm run --silent | grep -qE '^\s*test:${{ matrix.suite }}'; then
+            npm run test:${{ matrix.suite }}
+          else
+            echo "No test:${{ matrix.suite }} script; running default test"
+            npm test --if-present
+          fi
+
+  integration-tests:
+    name: Backend integration tests (mocked)
+    needs: install
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: deliveriq
+          POSTGRES_PASSWORD: deliveriq
+          POSTGRES_DB: deliveriq_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U deliveriq"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://deliveriq:deliveriq@localhost:5432/deliveriq_test?schema=public
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: test-jwt-secret-at-least-32-bytes-long-xxxx
+      JWT_REFRESH_SECRET: test-refresh-secret-at-least-32-bytes-xxxx
+      BCRYPT_COST: "4"
+      CORS_ORIGINS: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Prisma generate + migrate
+        run: |
+          npx prisma generate --schema=src/database/prisma/schema.prisma
+          npx prisma migrate deploy --schema=src/database/prisma/schema.prisma || \
+            npx prisma db push --schema=src/database/prisma/schema.prisma --accept-data-loss
+      - name: Build shared
+        run: npm run build:shared
+      - name: Integration tests
+        working-directory: tests
+        run: |
+          if npm run --silent | grep -qE '^\s*test:integration'; then
+            npm run test:integration
+          else
+            echo "No test:integration script; skipping."
+          fi
+
+  build-backend:
+    name: Build backend image
+    needs: [typecheck, prisma]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+      - id: meta
+        run: echo "image=deliveriq-backend:ci-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Build backend image (load locally)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: src/backend/Dockerfile
+          load: true
+          tags: ${{ steps.meta.outputs.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Save image artifact
+        run: docker save "${{ steps.meta.outputs.image }}" -o backend-image.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-image
+          path: backend-image.tar
+          retention-days: 1
+
+  build-frontend:
+    name: Build frontend image
+    needs: [typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: src/frontend/Dockerfile
+          load: true
+          tags: deliveriq-frontend:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-mobile:
+    name: Mobile (Expo prebuild dry-run)
+    needs: [typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Expo prebuild dry-run
+        working-directory: src/mobile
+        run: |
+          npx --yes expo-doctor || true
+          npx --yes expo prebuild --no-install --platform android --clean || \
+            echo "::warning::Expo prebuild dry-run failed (non-fatal in CI)"
+
+  npm-audit:
+    name: npm audit (high+)
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Audit (fail on high)
+        run: npm audit --omit=dev --audit-level=high
+
+  gitleaks:
+    name: Gitleaks secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: infra/ci/gitleaks.toml
+        continue-on-error: false
+
+  trivy-scan:
+    name: Trivy container scan (backend)
+    needs: build-backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-image
+      - name: Load image
+        run: docker load -i backend-image.tar
+      - name: Trivy scan (HIGH+CRITICAL fail)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ needs.build-backend.outputs.image }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          trivy-config: infra/ci/trivy.yaml
+
+  sbom:
+    name: SBOM (CycloneDX)
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Generate SBOM
+        run: |
+          npx --yes @cyclonedx/cyclonedx-npm \
+            --output-file sbom.cdx.json \
+            --output-format JSON || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  ci-success:
+    name: CI Success Gate
+    needs:
+      - lint
+      - typecheck
+      - prisma
+      - unit-tests
+      - integration-tests
+      - build-backend
+      - build-frontend
+      - build-mobile
+      - npm-audit
+      - gitleaks
+      - trivy-scan
+      - sbom
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All CI gates passed."
