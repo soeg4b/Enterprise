@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Backend multi-stage build (non-root, healthchecked)
-FROM node:20-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 COPY package.json package-lock.json* ./
@@ -9,7 +9,7 @@ COPY src/database/package.json src/database/package.json
 COPY src/backend/package.json src/backend/package.json
 RUN npm ci --ignore-scripts --no-audit --no-fund || npm install --no-audit --no-fund
 
-FROM node:20-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 COPY --from=deps /app/node_modules ./node_modules
@@ -19,7 +19,7 @@ RUN npm -w deliveriq-shared run build || true
 RUN npx tsc -p src/backend/tsconfig.json
 RUN npm prune --omit=dev --workspaces --include-workspace-root || true
 
-FROM node:20-alpine AS runner
+FROM node:25-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3600 \
