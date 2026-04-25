@@ -9,6 +9,7 @@ import { SiteDetailScreen } from './screens/SiteDetail';
 import { MilestoneUpdateScreen } from './screens/MilestoneUpdate';
 import { SyncStatusScreen } from './screens/SyncStatus';
 import { ProfileScreen } from './screens/Profile';
+import { FiberTaggingScreen } from './screens/FiberTagging';
 import { initDb } from './lib/db';
 
 export type Route =
@@ -17,6 +18,7 @@ export type Route =
   | { name: 'site'; siteId: string }
   | { name: 'milestone'; milestoneId: string; siteId: string }
   | { name: 'sync' }
+  | { name: 'fiber' }
   | { name: 'profile' };
 
 export default function App() {
@@ -37,6 +39,7 @@ export default function App() {
     case 'site': screen = <SiteDetailScreen siteId={route.siteId} onOpenMilestone={(mid) => setRoute({ name: 'milestone', milestoneId: mid, siteId: route.siteId })} onBack={() => setRoute({ name: 'today' })} />; break;
     case 'milestone': screen = <MilestoneUpdateScreen milestoneId={route.milestoneId} onDone={() => setRoute({ name: 'site', siteId: route.siteId })} />; break;
     case 'sync': screen = <SyncStatusScreen />; break;
+    case 'fiber': screen = <FiberTaggingScreen />; break;
     case 'profile': screen = <ProfileScreen onLogout={() => setRoute({ name: 'login' })} />; break;
   }
 
@@ -47,6 +50,7 @@ export default function App() {
       {route.name !== 'login' && (
         <View style={styles.tabs}>
           <Tab label="Today" active={route.name === 'today'} onPress={() => setRoute({ name: 'today' })} />
+          <Tab label="Fiber" active={route.name === 'fiber'} onPress={() => setRoute({ name: 'fiber' })} />
           <Tab label="Sync" active={route.name === 'sync'} onPress={() => setRoute({ name: 'sync' })} />
           <Tab label="Saya" active={route.name === 'profile'} onPress={() => setRoute({ name: 'profile' })} />
         </View>

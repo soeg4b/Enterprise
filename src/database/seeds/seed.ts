@@ -77,7 +77,7 @@ type SowSpec = {
 
 type OrderSpec = {
   number: string;
-  customer: 'mandiri' | 'bca' | 'pertamina' | 'pln' | 'pelindo';
+  customer: 'mandiri' | 'bca' | 'pertamina' | 'pln' | 'pelindo' | 'telkom';
   department: 'ent' | 'pres';
   pm: 'pm1' | 'pm2';
   type: OrderType;
@@ -544,6 +544,51 @@ const ORDERS: OrderSpec[] = [
       },
     ],
   },
+  // ===========================================================================
+  // PPO21 — PT Telkom Akses BSD Backbone Rollout
+  // This order's primary SOW is the *Fiber Optic Pole Tagging* scope wired up
+  // to the in-memory fiber-projects module (project id `fp-bsd-loop-001`).
+  // The on-site mitra workflow (photos with EXIF GPS → poles on map) opens
+  // from this order's detail page.
+  // ===========================================================================
+  {
+    number: 'PPO21-201', customer: 'telkom', department: 'ent', pm: 'pm1',
+    type: 'NEW', productCategory: 'CONNECTIVITY',
+    description: 'BSD Backbone Rollout 2026 — fiber optic backbone NE→FE (BSD cluster). Termasuk pole tagging mitra, civil work, OLT/splitter install, dan acceptance testing OTDR.',
+    contractValue: 4_750_000_000, otc: 3_900_000_000, mrc: 70_000_000, capex: 2_950_000_000,
+    startDate: '2026-04-01', endDate: '2026-09-30',
+    // Fiber optic link project dipecah jadi 3 scope:
+    //   (A) Activity di Site A (Near End)
+    //   (B) Activity di Link A–B (jalur kabel: civil, pull, splicing, OTDR)
+    //   (C) Activity di Site B (Far End)
+    sows: [
+      {
+        number: 'SOW-PPO21-201-A', scope: 'Site A (NE) — OLT & Rack Installation, Power, Grounding (BSD Junction Box A)',
+        rfsOffsetDays: 38,
+        vendor: 'mitraA', vendorAmount: 600_000_000,
+        spkNumber: 'SPK-PPO21-A', poNumber: 'PO-PPO21-A',
+        site: { code: 'BSD-NE-01', name: 'BSD Junction Box A — Boulevard Barat', type: 'NE', city: 'Tangerang Selatan', province: 'Banten', lat: -6.320116, lng: 106.666433, field: 'field1' },
+        plan: planThrough(2),
+        claim: { type: 'OTC', amount: 250_000_000, status: 'PENDING' },
+      },
+      {
+        number: 'SOW-PPO21-201-B', scope: 'Link A–B — Pole Tagging, Civil Trenching/Duct, Cable Pulling & Splicing (BSD Loop)',
+        rfsOffsetDays: 80,
+        vendor: 'mitraA', vendorAmount: 1_500_000_000,
+        spkNumber: 'SPK-PPO21-B', poNumber: 'PO-PPO21-B',
+        site: { code: 'BSD-LNK-AB', name: 'BSD Link A–B — Boulevard Backbone Route', type: 'POP', city: 'Tangerang Selatan', province: 'Banten', lat: -6.317722, lng: 106.670901, field: 'field1' },
+        plan: planThrough(1),
+      },
+      {
+        number: 'SOW-PPO21-201-C', scope: 'Site B (FE) — ODP/Splitter Install, Patching & OTDR Acceptance (BSD Distribution Hub)',
+        rfsOffsetDays: 95,
+        vendor: 'mitraA', vendorAmount: 500_000_000,
+        spkNumber: 'SPK-PPO21-C', poNumber: 'PO-PPO21-C',
+        site: { code: 'BSD-FE-01', name: 'BSD Distribution Hub — Grand Boulevard', type: 'FE', city: 'Tangerang Selatan', province: 'Banten', lat: -6.315328, lng: 106.675369, field: 'field2' },
+        plan: planThrough(1),
+      },
+    ],
+  },
 ];
 
 function planDateFor(planRfs: Dayjs, type: MilestoneType): Date {
@@ -617,6 +662,7 @@ async function main() {
     pertamina: { code: 'CUST-PERTAMINA', name: 'PT Pertamina (Persero)',  industry: 'Energy' },
     pln:       { code: 'CUST-PLN',       name: 'PT PLN (Persero)',        industry: 'Utilities' },
     pelindo:   { code: 'CUST-PELINDO',   name: 'PT Pelabuhan Indonesia',  industry: 'Logistics' },
+    telkom:    { code: 'CUST-TLKMAKSES', name: 'PT Telkom Akses',         industry: 'Telecommunications' },
   };
   const customers: Record<string, { id: string }> = {};
   for (const [k, c] of Object.entries(customerSeed)) {
@@ -726,7 +772,7 @@ async function main() {
 
       const sow = await prisma.sOW.upsert({
         where: { tenantId_sowNumber: { tenantId: T, sowNumber: sowSpec.number } } as never,
-        update: { planRfsDate: planRfs.toDate(), actualRfsDate: actualRfs },
+        update: { scope: sowSpec.scope, planRfsDate: planRfs.toDate(), actualRfsDate: actualRfs },
         create: {
           sowNumber: sowSpec.number,
           soId: so.id,
@@ -742,7 +788,7 @@ async function main() {
       const fieldUser = users[sowSpec.site.field];
       const site = await prisma.site.upsert({
         where: { tenantId_code: { tenantId: T, code: sowSpec.site.code } } as never,
-        update: { name: sowSpec.site.name, assignedFieldUserId: fieldUser.id },
+        update: { name: sowSpec.site.name, type: sowSpec.site.type, assignedFieldUserId: fieldUser.id },
         create: {
           code: sowSpec.site.code,
           name: sowSpec.site.name,

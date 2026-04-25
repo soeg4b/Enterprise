@@ -5,10 +5,14 @@ import { usePathname } from 'next/navigation';
 
 const NAV: Array<{ href: string; label: string; roles?: string[] }> = [
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/my-work', label: 'My Work' },
+  { href: '/board', label: 'Board' },
+  { href: '/timeline', label: 'Timeline' },
   { href: '/project-management', label: 'Project Management' },
   { href: '/reports/executive', label: 'Executive Summary' },
   { href: '/reports/partners', label: 'Partner Delivery' },
   { href: '/orders', label: 'Programs' },
+  { href: '/fiber', label: 'Fiber Projects' },
   { href: '/imports', label: 'Imports' },
   { href: '/notifications', label: 'Notifications' },
   { href: '/audit', label: 'Audit', roles: ['AD'] },

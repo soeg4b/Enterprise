@@ -84,7 +84,7 @@ export async function ordersRoutes(app: FastifyInstance): Promise<void> {
             include: {
               sows: {
                 select: {
-                  id: true, sowNumber: true, planRfsDate: true, actualRfsDate: true,
+                  id: true, sowNumber: true, scope: true, planRfsDate: true, actualRfsDate: true,
                   progressPct: true, gapDays: true, warningLevel: true,
                 },
               },

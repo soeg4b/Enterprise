@@ -10,13 +10,18 @@
 const apiOrigin = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '');
 const isProd = process.env.NODE_ENV === 'production';
 
+// Allow OpenStreetMap tile servers (used by Leaflet) and the API origin so
+// that map tiles and uploaded photos render. Tiles are served from
+// {a,b,c}.tile.openstreetmap.org over https.
+const tileOrigins = 'https://*.tile.openstreetmap.org https://tile.openstreetmap.org';
+
 const cspProd = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob: ${apiOrigin} ${tileOrigins}`.trim(),
   "font-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   // 'unsafe-inline' for scripts is required for Next.js inline bootstrap;
@@ -28,7 +33,7 @@ const cspProd = [
 
 const cspDev = [
   "default-src 'self'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob: ${apiOrigin} http://localhost:* ${tileOrigins}`.trim(),
   "style-src 'self' 'unsafe-inline'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   `connect-src 'self' ${apiOrigin} ws://localhost:* http://localhost:*`.trim(),
