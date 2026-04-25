@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import { api, setTokens } from '../lib/api';
+import { api, setTokens, storeUser } from '../lib/api';
 
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [email, setEmail] = useState('field1@deliveriq.local');
@@ -11,10 +11,12 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
   async function submit() {
     setBusy(true); setErr(null);
     try {
-      const res = await api<{ accessToken: string; refreshToken: string }>(
+      const res = await api<{ accessToken: string; refreshToken: string; user?: { id: string; email: string; fullName: string; role: string } }>(
         '/v1/auth/login', { method: 'POST', body: JSON.stringify({ email, password }), auth: false },
       );
       await setTokens(res.accessToken, res.refreshToken);
+      // Persist the user profile so OTDR / other screens can read operator name without a round-trip.
+      if (res.user) await storeUser(res.user);
       onLoggedIn();
     } catch (e) { setErr(e instanceof Error ? e.message : 'Login failed'); }
     finally { setBusy(false); }

@@ -12,6 +12,20 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { API_URL, api } from '../lib/api';
 
+export type FiberTaggingNav =
+  | { screen: 'list' }
+  | { screen: 'detail'; projectId: string }
+  | { screen: 'otdr'; projectId: string; projectCode: string; projectName: string; segments: ProjectSegment[] };
+
+export type ProjectSegment = {
+  segment: string;
+  txPass: boolean;
+  rxPass: boolean;
+  txCount: number;
+  rxCount: number;
+  status: string;
+};
+
 type ProjectSummary = {
   id: string;
   code: string;
@@ -39,9 +53,11 @@ type Pole = {
 type ProjectDetail = ProjectSummary & {
   description: string;
   poles: Pole[];
+  segments: ProjectSegment[];
+};
 };
 
-export function FiberTaggingScreen() {
+export function FiberTaggingScreen({ onOpenOtdr }: { onOpenOtdr?: (projectId: string, code: string, name: string, segments: ProjectSegment[]) => void }) {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
@@ -138,6 +154,14 @@ export function FiberTaggingScreen() {
           <Stat label="Length" value={`${(detail.estimatedLengthMeters / 1000).toFixed(2)} km`} />
           <Stat label="Status" value={detail.status} />
         </View>
+
+        {/* OTDR quick-access button */}
+        <Pressable
+          style={styles.otdrBtn}
+          onPress={() => onOpenOtdr?.(detail.id, detail.code, detail.name, detail.segments ?? [])}
+        >
+          <Text style={styles.otdrBtnText}>📡 Upload & Analisa OTDR</Text>
+        </Pressable>
 
         <View style={styles.endpointBox}>
           <Text style={styles.endpointTitle}>Near End (NE)</Text>
@@ -275,4 +299,6 @@ const styles = StyleSheet.create({
   poleCard: { flexDirection: 'row', backgroundColor: 'white', padding: 8, borderRadius: 6, marginBottom: 6, gap: 8, alignItems: 'center' },
   poleThumb: { width: 60, height: 60, borderRadius: 4 },
   poleSeq: { fontWeight: '700' },
+  otdrBtn: { backgroundColor: '#0284c7', borderRadius: 8, padding: 12, alignItems: 'center', marginBottom: 12 },
+  otdrBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
 });

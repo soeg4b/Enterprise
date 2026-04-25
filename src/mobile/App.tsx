@@ -9,7 +9,8 @@ import { SiteDetailScreen } from './screens/SiteDetail';
 import { MilestoneUpdateScreen } from './screens/MilestoneUpdate';
 import { SyncStatusScreen } from './screens/SyncStatus';
 import { ProfileScreen } from './screens/Profile';
-import { FiberTaggingScreen } from './screens/FiberTagging';
+import { FiberTaggingScreen, type ProjectSegment } from './screens/FiberTagging';
+import { OtdrUploadScreen } from './screens/OtdrUpload';
 import { initDb } from './lib/db';
 
 export type Route =
@@ -19,6 +20,7 @@ export type Route =
   | { name: 'milestone'; milestoneId: string; siteId: string }
   | { name: 'sync' }
   | { name: 'fiber' }
+  | { name: 'otdr'; projectId: string; projectCode: string; projectName: string; segments: ProjectSegment[] }
   | { name: 'profile' };
 
 export default function App() {
@@ -39,7 +41,8 @@ export default function App() {
     case 'site': screen = <SiteDetailScreen siteId={route.siteId} onOpenMilestone={(mid) => setRoute({ name: 'milestone', milestoneId: mid, siteId: route.siteId })} onBack={() => setRoute({ name: 'today' })} />; break;
     case 'milestone': screen = <MilestoneUpdateScreen milestoneId={route.milestoneId} onDone={() => setRoute({ name: 'site', siteId: route.siteId })} />; break;
     case 'sync': screen = <SyncStatusScreen />; break;
-    case 'fiber': screen = <FiberTaggingScreen />; break;
+    case 'fiber': screen = <FiberTaggingScreen onOpenOtdr={(id, code, name, segs) => setRoute({ name: 'otdr', projectId: id, projectCode: code, projectName: name, segments: segs })} />; break;
+    case 'otdr': screen = <OtdrUploadScreen projectId={route.projectId} projectCode={route.projectCode} projectName={route.projectName} segments={route.segments} onBack={() => setRoute({ name: 'fiber' })} />; break;
     case 'profile': screen = <ProfileScreen onLogout={() => setRoute({ name: 'login' })} />; break;
   }
 
