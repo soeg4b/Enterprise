@@ -28,7 +28,6 @@ const cspProd = [
   // tighten with nonces in a follow-up (App Router supports CSP nonces).
   "script-src 'self' 'unsafe-inline'",
   `connect-src 'self' ${apiOrigin}`.trim(),
-  "upgrade-insecure-requests",
 ].join('; ');
 
 const cspDev = [
