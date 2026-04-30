@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Frontend (Next.js) multi-stage build (non-root, healthchecked)
-FROM node:20-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json* ./
@@ -8,7 +8,7 @@ COPY src/shared/package.json src/shared/package.json
 COPY src/frontend/package.json src/frontend/package.json
 RUN npm ci --ignore-scripts --no-audit --no-fund || npm install --no-audit --no-fund
 
-FROM node:20-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_API_URL=http://localhost:3600
@@ -19,7 +19,7 @@ RUN npm -w deliveriq-shared run build || true
 RUN npm -w deliveriq-frontend run build
 RUN npm prune --omit=dev --workspaces --include-workspace-root || true
 
-FROM node:20-alpine AS runner
+FROM node:25-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
