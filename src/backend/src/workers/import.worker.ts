@@ -9,7 +9,7 @@ import { prisma } from '../db/prisma.js';
 import { logger } from '../lib/logger.js';
 import { QUEUE_NAMES, type ImportParseJob } from '../queues/queues.js';
 import { audit } from '../audit/audit.js';
-import { EXCEL_MAPPINGS, normalizeHeader, type SheetMapping, type FieldMapping } from '../../../database/import/excel-mapping.js';
+import { EXCEL_MAPPINGS, normalizeHeader, type SheetMapping, type FieldMapping } from 'deliveriq-database/import/excel-mapping.js';
 
 interface NormRow {
   rowNumber: number;

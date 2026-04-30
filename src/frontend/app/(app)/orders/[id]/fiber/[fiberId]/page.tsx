@@ -172,7 +172,8 @@ export default function FiberProjectDetail() {
       const radiusMeters = 6;
       groups.forEach((arr) => {
         if (arr.length === 1) {
-          displayCoords[arr[0].id] = [arr[0].latitude, arr[0].longitude];
+          const p = arr[0]!;
+          displayCoords[p.id] = [p.latitude, p.longitude];
           return;
         }
         arr.forEach((p, i) => {

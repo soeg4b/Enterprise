@@ -82,6 +82,7 @@ export const STATUS_COLORS: Record<OverallStatus, { bg: string; text: string; la
   ON_TRACK: { bg: '#10b981', text: '#ffffff', label: 'On Track' },
   AT_RISK: { bg: '#f59e0b', text: '#1f2937', label: 'At Risk' },
   DELAY: { bg: '#ef4444', text: '#ffffff', label: 'Delay' },
+  UNKNOWN: { bg: '#94a3b8', text: '#ffffff', label: 'Unknown' },
 };
 
 export const API_BASE_PATH = '/v1';

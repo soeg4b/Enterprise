@@ -15,6 +15,9 @@
     "schema": "prisma/schema.prisma",
     "seed": "tsx seeds/seed.ts"
   },
+  "exports": {
+    "./import/excel-mapping.js": "./import/excel-mapping.ts"
+  },
   "dependencies": {
     "@prisma/client": "^5.13.0",
     "bcrypt": "^5.1.1",

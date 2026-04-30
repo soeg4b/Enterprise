@@ -61,7 +61,7 @@ export async function checkOtdrPhotoQuality(buffer: Buffer): Promise<PhotoQualit
   // Parse EXIF + image metadata
   let raw: Record<string, unknown> | undefined;
   try {
-    raw = await exifr.parse(buffer, { ifd0: true, exif: true, gps: true, tiff: true });
+    raw = await exifr.parse(buffer, { ifd0: true, exif: true, gps: true, tiff: true } as never);
   } catch {
     raw = undefined;
   }

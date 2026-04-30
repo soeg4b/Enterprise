@@ -2,7 +2,7 @@
 // DeliverIQ — Fastify API server bootstrap
 // =============================================================================
 
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyBaseLogger } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { ZodError } from 'zod';
@@ -43,7 +43,7 @@ try {
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({
-    logger,
+    logger: logger as unknown as FastifyBaseLogger,
     trustProxy: true,
     bodyLimit: 5 * 1024 * 1024,
     genReqId: () => randomUUID(),
@@ -135,7 +135,7 @@ async function redisVersionMajor(): Promise<number> {
   try {
     const info = await getRedis().info('server');
     const match = info.match(/redis_version:(\d+)/);
-    return match ? parseInt(match[1], 10) : 0;
+    return match ? parseInt(match[1]!, 10) : 0;
   } catch {
     return 0;
   }

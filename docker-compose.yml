@@ -107,6 +107,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT: http://minio:9000
       PORT: "3600"
+      DATA_DIR: /app/data
+    volumes:
+      - appdata:/app/data
     ports:
       - "3600:3600"
     depends_on:
@@ -151,3 +154,4 @@ volumes:
   pgdata:
   redisdata:
   miniodata:
+  appdata:

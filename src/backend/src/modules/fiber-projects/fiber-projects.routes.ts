@@ -70,11 +70,11 @@ type FiberProject = {
 
 // ---- Storage ----------------------------------------------------------------
 
-const PROJECT_ROOT = path.resolve(process.cwd(), '..', '..');
-const SEED_PHOTO_DIR = path.join(PROJECT_ROOT, 'Foto Project');
-const UPLOAD_DIR = path.join(PROJECT_ROOT, 'Foto Project Uploads');
-const OTDR_SEED_DIR = path.join(PROJECT_ROOT, 'OTDR Test');
-const OTDR_UPLOAD_DIR = path.join(PROJECT_ROOT, 'OTDR Test Uploads');
+const DATA_DIR = process.env.DATA_DIR || path.resolve(process.cwd(), '..', '..');
+const SEED_PHOTO_DIR = path.join(DATA_DIR, 'Foto Project');
+const UPLOAD_DIR = path.join(DATA_DIR, 'Foto Project Uploads');
+const OTDR_SEED_DIR = path.join(DATA_DIR, 'OTDR Test');
+const OTDR_UPLOAD_DIR = path.join(DATA_DIR, 'OTDR Test Uploads');
 
 const projects = new Map<string, FiberProject>();
 
@@ -93,7 +93,7 @@ function haversineMeters(a: { latitude: number; longitude: number }, b: { latitu
 
 function totalLengthMeters(points: { latitude: number; longitude: number }[]): number {
   let total = 0;
-  for (let i = 1; i < points.length; i++) total += haversineMeters(points[i - 1], points[i]);
+  for (let i = 1; i < points.length; i++) total += haversineMeters(points[i - 1]!, points[i]!);
   return total;
 }
 
@@ -547,7 +547,7 @@ export async function fiberProjectsRoutes(app: FastifyInstance): Promise<void> {
     const idx = p.poles.findIndex((x) => x.id === poleId);
     if (idx < 0) return reply.code(404).send({ code: 'NOT_FOUND' });
     const [removed] = p.poles.splice(idx, 1);
-    const filePath = path.join(UPLOAD_DIR, removed.filename);
+    const filePath = path.join(UPLOAD_DIR, removed!.filename);
     await fs.unlink(filePath).catch(() => undefined);
     orderPoles(p);
     return { ok: true, project: projectSummary(p) };
@@ -647,7 +647,7 @@ export async function fiberProjectsRoutes(app: FastifyInstance): Promise<void> {
       }
       // Capture full EXIF for archival
       try {
-        exif = (await exifr.parse(buf, { ifd0: true, exif: true, gps: true, tiff: true })) as Record<string, unknown> | null;
+        exif = (await exifr.parse(buf, { ifd0: true, exif: true, gps: true, tiff: true } as never)) as Record<string, unknown> | null;
       } catch {
         exif = null;
       }

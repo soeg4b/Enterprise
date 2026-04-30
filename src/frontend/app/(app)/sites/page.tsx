@@ -75,7 +75,7 @@ function SitesContent() {
       .then((data) => {
         setSow(data);
         const initial: Record<string, boolean> = {};
-        if (data.sites.length === 1) initial[data.sites[0].id] = true;
+        if (data.sites.length === 1) initial[data.sites[0]!.id] = true;
         setOpenSites(initial);
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'));

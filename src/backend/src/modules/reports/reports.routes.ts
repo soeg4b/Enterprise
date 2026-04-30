@@ -59,7 +59,7 @@ function provinceFromCity(city: string | null | undefined): string {
   return CITY_TO_PROVINCE[city.trim().toLowerCase()] ?? 'Lainnya';
 }
 
-function aggregateWarningLevel(levels: Array<'ON_TRACK' | 'AT_RISK' | 'DELAY'>): 'ON_TRACK' | 'AT_RISK' | 'DELAY' | 'UNKNOWN' {
+function aggregateWarningLevel(levels: Array<'ON_TRACK' | 'AT_RISK' | 'DELAY' | 'UNKNOWN'>): 'ON_TRACK' | 'AT_RISK' | 'DELAY' | 'UNKNOWN' {
   if (levels.length === 0) return 'UNKNOWN';
   if (levels.some((l) => l === 'DELAY')) return 'DELAY';
   if (levels.some((l) => l === 'AT_RISK')) return 'AT_RISK';

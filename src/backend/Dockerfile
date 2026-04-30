@@ -2,12 +2,13 @@
 # Backend multi-stage build (non-root, healthchecked)
 FROM node:20-alpine AS deps
 WORKDIR /app
-RUN apk add --no-cache libc6-compat openssl
+RUN apk add --no-cache libc6-compat openssl python3 make g++
 COPY package.json package-lock.json* ./
 COPY src/shared/package.json src/shared/package.json
 COPY src/database/package.json src/database/package.json
 COPY src/backend/package.json src/backend/package.json
 RUN npm ci --ignore-scripts --no-audit --no-fund || npm install --no-audit --no-fund
+RUN npm rebuild bcrypt
 
 FROM node:20-alpine AS build
 WORKDIR /app
@@ -32,6 +33,7 @@ COPY --from=build --chown=app:app /app/src/backend/dist ./dist
 COPY --from=build --chown=app:app /app/src/database/prisma ./prisma
 COPY --from=build --chown=app:app /app/src/shared ./src/shared
 COPY --from=build --chown=app:app /app/package.json ./package.json
+RUN mkdir -p /app/data && chown app:app /app/data
 USER app
 EXPOSE 3600
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

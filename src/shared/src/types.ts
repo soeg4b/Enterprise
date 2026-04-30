@@ -30,7 +30,7 @@ export type MilestoneType =
 
 export type MilestoneStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED';
 
-export type OverallStatus = 'ON_TRACK' | 'AT_RISK' | 'DELAY';
+export type OverallStatus = 'ON_TRACK' | 'AT_RISK' | 'DELAY' | 'UNKNOWN';
 
 export type ClaimType = 'OTC' | 'MRC';
 export type ClaimStatus = 'PENDING' | 'SUBMITTED' | 'PAID' | 'CANCELLED';

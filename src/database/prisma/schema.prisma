@@ -97,6 +97,7 @@ enum OverallStatus {
   ON_TRACK
   AT_RISK
   DELAY
+  UNKNOWN
 }
 
 enum ClaimType {
