@@ -18,7 +18,7 @@
     "@fastify/jwt": "^8.0.0",
     "@fastify/multipart": "^8.2.0",
     "@prisma/client": "^5.13.0",
-    "bcrypt": "^5.1.1",
+    "bcryptjs": "^2.4.3",
     "bullmq": "^5.7.0",
     "dayjs": "^1.11.11",
     "deliveriq-database": "*",
@@ -32,7 +32,7 @@
     "zod": "^3.23.6"
   },
   "devDependencies": {
-    "@types/bcrypt": "^5.0.2",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.12.7",
     "tsx": "^4.7.2",
     "typescript": "^5.4.5"

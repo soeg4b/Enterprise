@@ -1,6 +1,6 @@
 // First-boot admin seeder — runs once on server start. Idempotent.
 
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
