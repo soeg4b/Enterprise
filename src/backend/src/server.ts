@@ -131,13 +131,27 @@ export async function buildServer(): Promise<FastifyInstance> {
   return app;
 }
 
+async function redisVersionMajor(): Promise<number> {
+  try {
+    const info = await getRedis().info('server');
+    const match = info.match(/redis_version:(\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 async function main(): Promise<void> {
   const app = await buildServer();
   await ensureBootstrapAdmin();
 
-  // Start in-process workers (in production deploy as a separate process).
-  const milestoneWorker = startMilestoneWorker?.();
-  const importWorker = startImportWorker?.();
+  // Start in-process workers only when Redis >= 5 (BullMQ requirement).
+  const redisMajor = await redisVersionMajor();
+  if (redisMajor < 5) {
+    app.log.warn({ redisMajor }, 'Redis < 5 detected — BullMQ workers disabled. Upgrade Redis to enable background jobs.');
+  }
+  const milestoneWorker = (redisMajor >= 5 && startMilestoneWorker) ? startMilestoneWorker() : null;
+  const importWorker = (redisMajor >= 5 && startImportWorker) ? startImportWorker() : null;
 
   const close = async (signal: string) => {
     app.log.info({ signal }, 'shutting down');
