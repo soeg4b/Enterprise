@@ -53,6 +53,23 @@ type OtdrTest = {
   createdAt: string;
 };
 
+type PermitDocument = {
+  id: string;
+  permitNumber: string;       // official permit / izin number from local government
+  issuedBy: string;           // issuing authority (e.g. "Dinas PUPR Kota Tangerang Selatan")
+  roadName: string;           // road / road-section this permit covers
+  validFrom: string;          // ISO date string
+  validUntil: string | null;  // ISO date string or null (open-ended)
+  notes: string;
+  fileId: string;             // UUID used as filename base
+  filename: string;           // stored filename (uuid.ext)
+  mimeType: string;           // application/pdf or image/*
+  originalName: string;       // browser-supplied filename for display
+  uploadedBy: string;
+  uploadedAt: string;
+  linkedPoleIds: string[];    // IDs of poles that fall under this permit's road section
+};
+
 type FiberProject = {
   id: string;
   code: string;
@@ -66,6 +83,7 @@ type FiberProject = {
   createdAt: string;
   poles: Pole[];
   otdrTests: OtdrTest[];
+  permits: PermitDocument[];
 };
 
 // ---- Storage ----------------------------------------------------------------
@@ -75,6 +93,12 @@ const SEED_PHOTO_DIR = path.join(DATA_DIR, 'Foto Project');
 const UPLOAD_DIR = path.join(DATA_DIR, 'Foto Project Uploads');
 const OTDR_SEED_DIR = path.join(DATA_DIR, 'OTDR Test');
 const OTDR_UPLOAD_DIR = path.join(DATA_DIR, 'OTDR Test Uploads');
+const PROJECT_ROOT = path.resolve(process.cwd(), '..', '..');
+const SEED_PHOTO_DIR = path.join(PROJECT_ROOT, 'Foto Project');
+const UPLOAD_DIR = path.join(PROJECT_ROOT, 'Foto Project Uploads');
+const OTDR_SEED_DIR = path.join(PROJECT_ROOT, 'OTDR Test');
+const OTDR_UPLOAD_DIR = path.join(PROJECT_ROOT, 'OTDR Test Uploads');
+const PERMIT_DIR = path.join(PROJECT_ROOT, 'Permit Documents');
 
 const projects = new Map<string, FiberProject>();
 
@@ -160,6 +184,7 @@ async function seedDemoProject(): Promise<void> {
     createdAt: new Date().toISOString(),
     poles: [],
     otdrTests: [],
+    permits: [],
   };
 
   if (existsSync(SEED_PHOTO_DIR)) {
@@ -308,6 +333,7 @@ function projectSummary(p: FiberProject) {
     segmentsTotal: segs.length,
     segmentsComplete: segs.filter((s) => s.status === 'COMPLETE').length,
     segmentsFailed: segs.filter((s) => s.status === 'FAILED').length,
+    permitsTotal: p.permits.length,
   };
 }
 
@@ -326,6 +352,7 @@ function projectDetail(p: FiberProject) {
       uploadedAt: pole.uploadedAt,
       uploadedBy: pole.uploadedBy,
       note: pole.note,
+      permitIds: p.permits.filter((pm) => pm.linkedPoleIds.includes(pole.id)).map((pm) => pm.id),
     })),
     routeGeoJson: {
       type: 'Feature',
@@ -337,6 +364,7 @@ function projectDetail(p: FiberProject) {
     },
     otdrTests: p.otdrTests.map((t) => serialiseOtdr(p.id, t)),
     segments: segmentSummary(p),
+    permits: p.permits.map((pm) => serialisePermit(p.id, pm)),
   };
 }
 
@@ -356,6 +384,25 @@ function serialiseOtdr(projectId: string, t: OtdrTest) {
     input: t.input,
     analysis: t.analysis,
     createdAt: t.createdAt,
+  };
+}
+
+function serialisePermit(projectId: string, permit: PermitDocument) {
+  return {
+    id: permit.id,
+    permitNumber: permit.permitNumber,
+    issuedBy: permit.issuedBy,
+    roadName: permit.roadName,
+    validFrom: permit.validFrom,
+    validUntil: permit.validUntil,
+    notes: permit.notes,
+    originalName: permit.originalName,
+    mimeType: permit.mimeType,
+    uploadedBy: permit.uploadedBy,
+    uploadedAt: permit.uploadedAt,
+    linkedPoleIds: permit.linkedPoleIds,
+    linkedPoleCount: permit.linkedPoleIds.length,
+    fileUrl: `/v1/fiber-projects/${projectId}/permits/${permit.id}/file`,
   };
 }
 
@@ -684,5 +731,174 @@ export async function fiberProjectsRoutes(app: FastifyInstance): Promise<void> {
       project: projectSummary(p),
       segments: segmentSummary(p),
     });
+  });
+
+  // ---- Permit document endpoints -------------------------------------------
+
+  // List permits for a project
+  app.get('/v1/fiber-projects/:id/permits', async (req, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const p = projects.get(id);
+    if (!p) return reply.code(404).send({ code: 'NOT_FOUND' });
+    return { items: p.permits.map((pm) => serialisePermit(p.id, pm)) };
+  });
+
+  // Permit detail
+  app.get('/v1/fiber-projects/:id/permits/:permitId', async (req, reply) => {
+    const { id, permitId } = z.object({ id: z.string(), permitId: z.string() }).parse(req.params);
+    const p = projects.get(id);
+    if (!p) return reply.code(404).send({ code: 'NOT_FOUND' });
+    const permit = p.permits.find((pm) => pm.id === permitId);
+    if (!permit) return reply.code(404).send({ code: 'NOT_FOUND' });
+    return serialisePermit(p.id, permit);
+  });
+
+  // Serve permit file (PDF or image)
+  app.get('/v1/fiber-projects/:id/permits/:permitId/file', async (req, reply) => {
+    const { id, permitId } = z.object({ id: z.string(), permitId: z.string() }).parse(req.params);
+    const p = projects.get(id);
+    if (!p) return reply.code(404).send({ code: 'NOT_FOUND' });
+    const permit = p.permits.find((pm) => pm.id === permitId);
+    if (!permit) return reply.code(404).send({ code: 'NOT_FOUND' });
+    const filePath = path.join(PERMIT_DIR, permit.filename);
+    if (!existsSync(filePath)) return reply.code(404).send({ code: 'FILE_MISSING' });
+    reply.header('Content-Disposition', `inline; filename="${permit.originalName.replace(/"/g, '_')}"`);
+    reply.header('Cache-Control', 'private, max-age=3600');
+    reply.type(permit.mimeType);
+    return reply.send(createReadStream(filePath));
+  });
+
+  // Upload permit document (multipart: file + metadata fields)
+  // Accepted MIME: application/pdf, image/jpeg, image/png, image/webp
+  app.post('/v1/fiber-projects/:id/permits', async (req: FastifyRequest, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const p = projects.get(id);
+    if (!p) return reply.code(404).send({ code: 'NOT_FOUND' });
+
+    const isMultipart = (req as { isMultipart?: () => boolean }).isMultipart?.();
+    if (!isMultipart) return reply.code(415).send({ code: 'UNSUPPORTED_MEDIA_TYPE' });
+
+    const file = await (req as unknown as {
+      file: () => Promise<{ filename: string; mimetype: string; toBuffer: () => Promise<Buffer>; fields: Record<string, unknown> } | undefined>;
+    }).file();
+    if (!file) return reply.code(400).send({ code: 'NO_FILE' });
+
+    const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    if (!ALLOWED_TYPES.includes(file.mimetype)) {
+      return reply.code(415).send({ code: 'UNSUPPORTED_FILE_TYPE', detail: 'Only PDF and image files (JPEG, PNG, WEBP) are accepted.' });
+    }
+
+    const buf = await file.toBuffer();
+    if (buf.length === 0) return reply.code(400).send({ code: 'EMPTY_FILE' });
+    if (buf.length > 25 * 1024 * 1024) return reply.code(413).send({ code: 'FILE_TOO_LARGE', detail: 'Max file size is 25 MB.' });
+
+    const fieldVal = (k: string): string | undefined => {
+      const f = file.fields[k] as { value?: unknown } | undefined;
+      return f && typeof f.value === 'string' ? f.value.trim() : undefined;
+    };
+
+    const PermitMeta = z.object({
+      permitNumber: z.string().min(1).max(120),
+      issuedBy: z.string().min(1).max(200),
+      roadName: z.string().min(1).max(300),
+      validFrom: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
+      validUntil: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
+      notes: z.string().max(1000).optional(),
+      uploadedBy: z.string().max(120).optional(),
+      linkedPoleIds: z.string().optional(), // JSON array string
+    });
+
+    let meta: z.infer<typeof PermitMeta>;
+    try {
+      meta = PermitMeta.parse({
+        permitNumber: fieldVal('permitNumber'),
+        issuedBy: fieldVal('issuedBy'),
+        roadName: fieldVal('roadName'),
+        validFrom: fieldVal('validFrom'),
+        validUntil: fieldVal('validUntil'),
+        notes: fieldVal('notes'),
+        uploadedBy: fieldVal('uploadedBy'),
+        linkedPoleIds: fieldVal('linkedPoleIds'),
+      });
+    } catch (err) {
+      return reply.code(422).send({ code: 'VALIDATION_FAILED', detail: 'Required fields: permitNumber, issuedBy, roadName, validFrom.' });
+    }
+
+    // Parse and validate linked pole IDs
+    let linkedPoleIds: string[] = [];
+    if (meta.linkedPoleIds) {
+      try {
+        const parsed = JSON.parse(meta.linkedPoleIds) as unknown;
+        if (!Array.isArray(parsed)) throw new Error();
+        linkedPoleIds = (parsed as unknown[])
+          .filter((x): x is string => typeof x === 'string')
+          .filter((x) => p.poles.some((pole) => pole.id === x));
+      } catch {
+        return reply.code(422).send({ code: 'INVALID_LINKED_POLES', detail: 'linkedPoleIds must be a JSON array of valid pole IDs.' });
+      }
+    }
+
+    const fileId = randomUUID();
+    const extMap: Record<string, string> = {
+      'application/pdf': '.pdf',
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'image/webp': '.webp',
+    };
+    const ext = extMap[file.mimetype] ?? '.bin';
+    const storedName = `${fileId}${ext}`;
+    await fs.mkdir(PERMIT_DIR, { recursive: true });
+    await fs.writeFile(path.join(PERMIT_DIR, storedName), buf);
+
+    const permit: PermitDocument = {
+      id: randomUUID(),
+      permitNumber: meta.permitNumber,
+      issuedBy: meta.issuedBy,
+      roadName: meta.roadName,
+      validFrom: meta.validFrom,
+      validUntil: meta.validUntil ?? null,
+      notes: meta.notes ?? '',
+      fileId,
+      filename: storedName,
+      mimeType: file.mimetype,
+      originalName: file.filename || storedName,
+      uploadedBy: meta.uploadedBy ?? 'admin@demo',
+      uploadedAt: new Date().toISOString(),
+      linkedPoleIds,
+    };
+    p.permits.push(permit);
+
+    return reply.code(201).send({
+      permit: serialisePermit(p.id, permit),
+      project: projectSummary(p),
+    });
+  });
+
+  // Update linked poles for a permit (full replacement of the linkedPoleIds set)
+  app.patch('/v1/fiber-projects/:id/permits/:permitId/poles', async (req, reply) => {
+    const { id, permitId } = z.object({ id: z.string(), permitId: z.string() }).parse(req.params);
+    const p = projects.get(id);
+    if (!p) return reply.code(404).send({ code: 'NOT_FOUND' });
+    const permit = p.permits.find((pm) => pm.id === permitId);
+    if (!permit) return reply.code(404).send({ code: 'NOT_FOUND' });
+
+    const { poleIds } = z.object({ poleIds: z.array(z.string()) }).parse(req.body);
+    const validIds = poleIds.filter((x) => p.poles.some((pole) => pole.id === x));
+    permit.linkedPoleIds = [...new Set(validIds)];
+
+    return { permit: serialisePermit(p.id, permit), project: projectSummary(p) };
+  });
+
+  // Delete a permit document
+  app.delete('/v1/fiber-projects/:id/permits/:permitId', async (req, reply) => {
+    const { id, permitId } = z.object({ id: z.string(), permitId: z.string() }).parse(req.params);
+    const p = projects.get(id);
+    if (!p) return reply.code(404).send({ code: 'NOT_FOUND' });
+    const idx = p.permits.findIndex((pm) => pm.id === permitId);
+    if (idx < 0) return reply.code(404).send({ code: 'NOT_FOUND' });
+    const [removed] = p.permits.splice(idx, 1);
+    const filePath = path.join(PERMIT_DIR, removed.filename);
+    await fs.unlink(filePath).catch(() => undefined);
+    return { ok: true, project: projectSummary(p) };
   });
 }

@@ -16,6 +16,24 @@ type Pole = {
   uploadedAt: string;
   uploadedBy: string;
   note: string;
+  permitIds: string[];
+};
+
+type PermitDocument = {
+  id: string;
+  permitNumber: string;
+  issuedBy: string;
+  roadName: string;
+  validFrom: string;
+  validUntil: string | null;
+  notes: string;
+  originalName: string;
+  mimeType: string;
+  uploadedBy: string;
+  uploadedAt: string;
+  linkedPoleIds: string[];
+  linkedPoleCount: number;
+  fileUrl: string;
 };
 
 type ProjectDetail = {
@@ -33,6 +51,7 @@ type ProjectDetail = {
   poles: Pole[];
   otdrTests?: OtdrTest[];
   segments?: SegmentSummary[];
+  permits?: PermitDocument[];
 };
 
 type SegmentSummary = {
@@ -256,6 +275,13 @@ export default function FiberProjectDetailPage() {
   const [otdrUploading, setOtdrUploading] = useState(false);
   const [otdrMsg, setOtdrMsg] = useState<{ kind: 'ok' | 'err'; text: string; failures?: string[] } | null>(null);
 
+  // Permit state
+  const [permitUploading, setPermitUploading] = useState(false);
+  const [permitMsg, setPermitMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [permitLinkTarget, setPermitLinkTarget] = useState<PermitDocument | null>(null);
+  const [pendingLinkIds, setPendingLinkIds] = useState<Set<string>>(new Set());
+  const [linkSaving, setLinkSaving] = useState(false);
+
   async function handleOtdrUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
@@ -297,6 +323,58 @@ export default function FiberProjectDetailPage() {
       form.reset(); await reload();
     } catch (err) { setOtdrMsg({ kind: 'err', text: `Error: ${String(err)}` }); }
     finally { setOtdrUploading(false); }
+  }
+
+  async function handlePermitUpload(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fileInput = form.elements.namedItem('permitFile') as HTMLInputElement;
+    const file = fileInput.files?.[0];
+    if (!file) { setPermitMsg({ kind: 'err', text: 'Pilih file dokumen izin terlebih dahulu.' }); return; }
+    const get = (n: string) => (form.elements.namedItem(n) as HTMLInputElement).value;
+    setPermitUploading(true); setPermitMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append('permitFile', file);
+      fd.append('permitNumber', get('permitNumber'));
+      fd.append('issuedBy', get('issuedBy'));
+      fd.append('roadName', get('roadName'));
+      fd.append('validFrom', get('validFrom'));
+      fd.append('validUntil', get('validUntil') || '');
+      fd.append('notes', get('notes') || '');
+      fd.append('uploadedBy', get('uploadedBy') || 'admin@demo');
+      fd.append('linkedPoleIds', JSON.stringify([]));
+      const r = await fetch(`${API_URL}/v1/fiber-projects/${id}/permits`, { method: 'POST', body: fd });
+      const j = await r.json();
+      if (!r.ok) { setPermitMsg({ kind: 'err', text: `Upload gagal: ${j.detail ?? j.code ?? r.status}` }); return; }
+      setPermitMsg({ kind: 'ok', text: `Izin "${j.permit.permitNumber}" berhasil diunggah.` });
+      form.reset(); await reload();
+    } catch (err) { setPermitMsg({ kind: 'err', text: `Error: ${String(err)}` }); }
+    finally { setPermitUploading(false); }
+  }
+
+  async function deletePermit(permit: PermitDocument) {
+    if (!confirm(`Hapus dokumen izin "${permit.permitNumber}"?`)) return;
+    const r = await fetch(`${API_URL}/v1/fiber-projects/${id}/permits/${permit.id}`, { method: 'DELETE' });
+    if (r.ok) await reload();
+  }
+
+  function openLinkModal(permit: PermitDocument) {
+    setPermitLinkTarget(permit);
+    setPendingLinkIds(new Set(permit.linkedPoleIds));
+  }
+
+  async function savePoleLinks() {
+    if (!permitLinkTarget) return;
+    setLinkSaving(true);
+    try {
+      const r = await fetch(`${API_URL}/v1/fiber-projects/${id}/permits/${permitLinkTarget.id}/poles`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ poleIds: Array.from(pendingLinkIds) }),
+      });
+      if (r.ok) { setPermitLinkTarget(null); await reload(); }
+    } finally { setLinkSaving(false); }
   }
 
   if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
@@ -439,6 +517,126 @@ export default function FiberProjectDetailPage() {
         </div>
       )}
 
+      {/* ---- Permit Documents ---- */}
+      <div className="bg-white rounded-lg border border-slate-200">
+        <div className="px-4 py-2 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold">Dokumen Izin (Permit) — {project.permits?.length ?? 0}</h3>
+            <p className="text-xs text-slate-500">Lampirkan surat izin dari pemerintah daerah (PUPR, Dishub, dll.) per ruas jalan, lalu tautkan ke tiang yang tercakup.</p>
+          </div>
+        </div>
+
+        {/* Upload form */}
+        <details className="border-b border-slate-100">
+          <summary className="px-4 py-2 text-xs font-semibold cursor-pointer hover:bg-slate-50">
+            + Upload Dokumen Izin Baru
+          </summary>
+          <form onSubmit={handlePermitUpload} className="px-4 py-3 grid md:grid-cols-3 gap-3 text-xs bg-slate-50">
+            <label className="space-y-1">
+              <div className="text-slate-600">Nomor Izin / No. Surat <span className="text-rose-500">*</span></div>
+              <input name="permitNumber" required placeholder="cth. IPT/2026/TPS/001" className="w-full border border-slate-300 rounded px-2 py-1" />
+            </label>
+            <label className="space-y-1 md:col-span-2">
+              <div className="text-slate-600">Instansi Penerbit <span className="text-rose-500">*</span></div>
+              <input name="issuedBy" required placeholder="cth. Dinas PUPR Kota Tangerang Selatan" className="w-full border border-slate-300 rounded px-2 py-1" />
+            </label>
+            <label className="space-y-1 md:col-span-3">
+              <div className="text-slate-600">Nama Jalan / Ruas Jalan yang Dicakup <span className="text-rose-500">*</span></div>
+              <input name="roadName" required placeholder="cth. Jl. BSD Boulevard Barat – Jl. Pahlawan Seribu" className="w-full border border-slate-300 rounded px-2 py-1" />
+            </label>
+            <label className="space-y-1">
+              <div className="text-slate-600">Berlaku Mulai <span className="text-rose-500">*</span></div>
+              <input name="validFrom" type="date" required className="w-full border border-slate-300 rounded px-2 py-1" />
+            </label>
+            <label className="space-y-1">
+              <div className="text-slate-600">Berlaku Sampai</div>
+              <input name="validUntil" type="date" className="w-full border border-slate-300 rounded px-2 py-1" />
+            </label>
+            <label className="space-y-1">
+              <div className="text-slate-600">Catatan</div>
+              <input name="notes" placeholder="Catatan tambahan" className="w-full border border-slate-300 rounded px-2 py-1" />
+            </label>
+            <label className="space-y-1">
+              <div className="text-slate-600">Diunggah oleh</div>
+              <input name="uploadedBy" type="email" defaultValue="admin@demo" className="w-full border border-slate-300 rounded px-2 py-1" />
+            </label>
+            <label className="space-y-1 md:col-span-2">
+              <div className="text-slate-600">File Dokumen (PDF / JPEG / PNG) <span className="text-rose-500">*</span></div>
+              <input name="permitFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" required className="w-full text-sm" />
+              <div className="text-[10px] text-slate-500">Maks. 25 MB. Format: PDF, JPEG, PNG, WEBP.</div>
+            </label>
+            <div className="md:col-span-3 flex items-center gap-3">
+              <button type="submit" disabled={permitUploading} className="bg-slate-900 text-white px-4 py-2 rounded text-xs font-semibold disabled:opacity-50">
+                {permitUploading ? 'Mengunggah…' : 'Upload Izin'}
+              </button>
+              {permitMsg && (
+                <div className={`text-xs font-semibold ${permitMsg.kind === 'ok' ? 'text-emerald-700' : 'text-rose-700'}`}>{permitMsg.text}</div>
+              )}
+            </div>
+          </form>
+        </details>
+
+        {/* Permit list */}
+        {project.permits && project.permits.length > 0 ? (
+          <div className="divide-y divide-slate-100">
+            {project.permits.map((pm) => (
+              <div key={pm.id} className="p-4 grid md:grid-cols-[1fr_auto] gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm">{pm.permitNumber}</span>
+                    {pm.mimeType === 'application/pdf'
+                      ? <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 border border-red-200 rounded font-semibold">PDF</span>
+                      : <span className="text-[10px] px-1.5 py-0.5 bg-sky-100 text-sky-700 border border-sky-200 rounded font-semibold">IMG</span>
+                    }
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold ${pm.validUntil && new Date(pm.validUntil) < new Date() ? 'bg-rose-100 text-rose-700 border-rose-300' : 'bg-emerald-100 text-emerald-700 border-emerald-300'}`}>
+                      {pm.validUntil && new Date(pm.validUntil) < new Date() ? 'EXPIRED' : 'VALID'}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-600">
+                    <span className="font-medium">Penerbit:</span> {pm.issuedBy}
+                  </div>
+                  <div className="text-xs text-slate-600">
+                    <span className="font-medium">Ruas jalan:</span> {pm.roadName}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    Berlaku: {pm.validFrom} {pm.validUntil ? `s/d ${pm.validUntil}` : '(tidak terbatas)'}
+                    {pm.notes && <> · {pm.notes}</>}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                    <span className="text-xs text-slate-500">{pm.linkedPoleCount} tiang ditautkan</span>
+                    {pm.linkedPoleIds.slice(0, 8).map((pid) => {
+                      const pole = project.poles.find((p) => p.id === pid);
+                      return pole ? (
+                        <span key={pid} className="text-[10px] bg-sky-50 border border-sky-200 text-sky-700 rounded px-1.5 py-0.5">#{pole.sequence}</span>
+                      ) : null;
+                    })}
+                    {pm.linkedPoleIds.length > 8 && <span className="text-[10px] text-slate-400">+{pm.linkedPoleIds.length - 8} lainnya</span>}
+                  </div>
+                </div>
+                <div className="flex md:flex-col gap-2 items-start md:items-end">
+                  <a href={`${API_URL}${pm.fileUrl}`} target="_blank" rel="noreferrer"
+                    className="text-xs bg-slate-900 text-white px-3 py-1.5 rounded hover:bg-slate-700 whitespace-nowrap">
+                    Lihat Dokumen
+                  </a>
+                  <button onClick={() => openLinkModal(pm)}
+                    className="text-xs border border-sky-300 text-sky-700 px-3 py-1.5 rounded hover:bg-sky-50 whitespace-nowrap">
+                    Tautkan Tiang
+                  </button>
+                  <button onClick={() => deletePermit(pm)}
+                    className="text-xs text-rose-600 underline">
+                    Hapus
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="px-4 py-6 text-center text-slate-500 text-sm">
+            Belum ada dokumen izin. Unggah izin pertama menggunakan form di atas.
+          </div>
+        )}
+      </div>
+
       <div className="bg-white rounded-lg border border-slate-200">
         <div className="px-4 py-2 border-b border-slate-200">
           <h3 className="font-semibold">Pole Inventory ({project.poles.length})</h3>
@@ -450,7 +648,8 @@ export default function FiberProjectDetailPage() {
                 <th className="px-3 py-2">#</th><th className="px-3 py-2">Photo</th>
                 <th className="px-3 py-2">Latitude</th><th className="px-3 py-2">Longitude</th>
                 <th className="px-3 py-2">Captured</th><th className="px-3 py-2">Mitra</th>
-                <th className="px-3 py-2">Note</th><th className="px-3 py-2"></th>
+                <th className="px-3 py-2">Note</th><th className="px-3 py-2">Izin</th>
+                <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -466,6 +665,20 @@ export default function FiberProjectDetailPage() {
                   <td className="px-3 py-2 text-xs">{p.capturedAt ? new Date(p.capturedAt).toLocaleString() : '—'}</td>
                   <td className="px-3 py-2 text-xs">{p.uploadedBy}</td>
                   <td className="px-3 py-2 text-xs">{p.note || '—'}</td>
+                  <td className="px-3 py-2">
+                    {p.permitIds && p.permitIds.length > 0 ? (
+                      <div className="flex flex-col gap-0.5">
+                        {p.permitIds.map((pid) => {
+                          const pm = project.permits?.find((x) => x.id === pid);
+                          return pm ? (
+                            <span key={pid} className="text-[10px] bg-violet-50 border border-violet-200 text-violet-700 rounded px-1.5 py-0.5 truncate max-w-[120px]" title={pm.permitNumber}>{pm.permitNumber}</span>
+                          ) : null;
+                        })}
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 italic">—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     <button onClick={() => focusPole(p)} className="text-xs text-sky-600 underline mr-2">Focus</button>
                     <button onClick={() => deletePole(p)} className="text-xs text-red-600 underline">Delete</button>
@@ -473,7 +686,7 @@ export default function FiberProjectDetailPage() {
                 </tr>
               ))}
               {project.poles.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-500">No poles tagged yet.</td></tr>
+                <tr><td colSpan={9} className="px-3 py-6 text-center text-slate-500">No poles tagged yet.</td></tr>
               )}
             </tbody>
           </table>
@@ -499,6 +712,61 @@ export default function FiberProjectDetailPage() {
             <div className="px-4 py-2 border-t border-slate-200 text-xs text-slate-500 flex justify-between items-center">
               <span>Uploaded by {lightbox.uploadedBy}</span>
               <a href={`https://www.google.com/maps/search/?api=1&query=${lightbox.latitude},${lightbox.longitude}`} target="_blank" rel="noreferrer" className="text-sky-600 underline">Open in Google Maps</a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Pole-link modal ---- */}
+      {permitLinkTarget && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setPermitLinkTarget(null)}>
+          <div className="bg-white rounded-lg w-full max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center px-4 py-3 border-b border-slate-200">
+              <div>
+                <div className="font-semibold text-sm">Tautkan Tiang ke Izin</div>
+                <div className="text-xs text-slate-500">{permitLinkTarget.permitNumber} · {permitLinkTarget.roadName}</div>
+              </div>
+              <button onClick={() => setPermitLinkTarget(null)} className="text-slate-500 hover:text-slate-900 text-2xl leading-none px-2" aria-label="Close">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {project.poles.length === 0 ? (
+                <p className="text-sm text-slate-500">Belum ada tiang yang di-tag.</p>
+              ) : (
+                <div className="space-y-1">
+                  <div className="flex gap-3 text-xs mb-2">
+                    <button type="button" className="text-sky-600 underline" onClick={() => setPendingLinkIds(new Set(project.poles.map((p) => p.id)))}>Pilih semua</button>
+                    <button type="button" className="text-slate-500 underline" onClick={() => setPendingLinkIds(new Set())}>Kosongkan</button>
+                  </div>
+                  {project.poles.map((pole) => (
+                    <label key={pole.id} className="flex items-center gap-3 p-2 rounded hover:bg-slate-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pendingLinkIds.has(pole.id)}
+                        onChange={(ev) => {
+                          const next = new Set(pendingLinkIds);
+                          if (ev.target.checked) next.add(pole.id); else next.delete(pole.id);
+                          setPendingLinkIds(next);
+                        }}
+                        className="w-4 h-4 accent-sky-600"
+                      />
+                      <div className="flex items-center gap-2 flex-1 text-sm">
+                        <span className="w-6 h-6 bg-sky-500 text-white rounded-full text-xs flex items-center justify-center font-bold shrink-0">{pole.sequence}</span>
+                        <span className="font-mono text-xs text-slate-600">{pole.latitude.toFixed(5)}, {pole.longitude.toFixed(5)}</span>
+                        {pole.note && <span className="text-xs text-slate-500 truncate">{pole.note}</span>}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-between gap-3">
+              <span className="text-xs text-slate-500">{pendingLinkIds.size} tiang dipilih</span>
+              <div className="flex gap-2">
+                <button onClick={() => setPermitLinkTarget(null)} className="text-xs border border-slate-300 px-3 py-1.5 rounded hover:bg-slate-50">Batal</button>
+                <button onClick={savePoleLinks} disabled={linkSaving} className="text-xs bg-slate-900 text-white px-4 py-1.5 rounded disabled:opacity-50">
+                  {linkSaving ? 'Menyimpan…' : 'Simpan Tautan'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

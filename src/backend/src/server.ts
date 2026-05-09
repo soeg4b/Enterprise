@@ -28,6 +28,7 @@ import { syncRoutes } from './modules/sync/sync.routes.js';
 import { notificationsRoutes, auditRoutes } from './modules/notifications/notifications.routes.js';
 import { stubRoutes } from './modules/stubs.js';
 import { fiberProjectsRoutes } from './modules/fiber-projects/fiber-projects.routes.js';
+import { pmoAiRoutes } from './modules/pmo-ai/pmo-ai.routes.js';
 
 // Workers are optional — Redis 5+ required for BullMQ
 let startMilestoneWorker: (() => { close(): Promise<void> }) | null = null;
@@ -127,6 +128,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(auditRoutes);
   await app.register(stubRoutes);
   await app.register(fiberProjectsRoutes);
+  await app.register(pmoAiRoutes);
 
   return app;
 }

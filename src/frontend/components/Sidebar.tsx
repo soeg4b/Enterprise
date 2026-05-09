@@ -16,6 +16,7 @@ const NAV: Array<{ href: string; label: string; roles?: string[] }> = [
   { href: '/imports', label: 'Imports' },
   { href: '/notifications', label: 'Notifications' },
   { href: '/audit', label: 'Audit', roles: ['AD'] },
+  { href: '/pmo-ai', label: '🤖 PMO AI' },
 ];
 
 export function Sidebar({ role }: { role: string }) {
