@@ -2,7 +2,7 @@
 // MVP trade-off: token is in localStorage (XSS-vulnerable). For production, switch
 // to httpOnly cookies via Next route handlers — see lib/auth.tsx for note.
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3600';
+export const API_URL = 'https://enterprise-git-276471302546.asia-southeast1.run.app';
 const TOKEN_KEY = 'deliveriq.accessToken';
 const REFRESH_KEY = 'deliveriq.refreshToken';
 
