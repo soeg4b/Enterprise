@@ -28,5 +28,5 @@ RUN npm run build:frontend && npm run build:backend
 
 EXPOSE 8080
 
-# Gunakan PORT dari environment variable agar Cloud Run bisa mendeteksi
-CMD ["npm", "run", "start:backend"]
+# 8. Jalankan layanan utama (Bypass npm scripts agar tidak error)
+CMD ["node", "src/backend/dist/server.js"]
