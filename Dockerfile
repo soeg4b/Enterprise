@@ -1,30 +1,32 @@
-FROM node:20-alpine
+# Menggunakan versi slim yang lebih stabil untuk Prisma
+FROM node:20-slim
 
-# 1. Install OpenSSL (WAJIB untuk Prisma agar bisa berjalan di Alpine Linux)
-RUN apk add --no-cache openssl
+# Install OpenSSL secara otomatis
+RUN apt-get update -y && apt-get install -y openssl
 
 WORKDIR /app
 
-# 2. Salin konfigurasi utama monorepo
+# 1. Salin file manajemen paket
 COPY package*.json ./
-# Salin package.json tiap bagian agar instalasi npm lebih cepat
 COPY src/backend/package*.json ./src/backend/
 COPY src/frontend/package*.json ./src/frontend/
 
-# 3. Install semua dependencies
+# 2. Install dependencies
 RUN npm install
 
-# 4. Salin seluruh kode sumber proyek DeliverIQ
+# 3. Salin seluruh kode proyek DeliverIQ
 COPY . .
 
-# 5. Jalankan Prisma Generate
-# Kami menggunakan path src/backend/src/db/schema.prisma sesuai struktur folder Anda
-RUN npx prisma generate --schema=src/backend/src/db/schema.prisma
+# 4. Cari & Generate Prisma secara otomatis
+# Perintah ini akan mencari di mana pun file schema.prisma berada agar tidak error 'Path Not Found'
+RUN SCHEMA_PATH=$(find . -name "schema.prisma" | head -n 1) && \
+    echo "Menggunakan schema di: $SCHEMA_PATH" && \
+    npx prisma generate --schema=$SCHEMA_PATH
 
-# 6. Build aplikasi menggunakan skrip yang ada di package.json root
+# 5. Build sistem (Frontend & Backend)
 RUN npm run build:frontend && npm run build:backend
 
 EXPOSE 8080
 
-# 7. Jalankan backend sebagai layanan utama
+# 6. Jalankan layanan
 CMD ["npm", "run", "dev:backend"]
