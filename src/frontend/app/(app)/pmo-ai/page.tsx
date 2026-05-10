@@ -74,17 +74,22 @@ const AGENT_STARTERS: Record<AgentId, string[]> = {
 function ConfigDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [selectedProvider, setSelectedProvider] = useState<any>(PROVIDERS[0]);
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState<string>(PROVIDERS[0].model);
-  const [baseUrl, setBaseUrl] = useState<string>(PROVIDERS[0].baseUrl);
+  
+  // PERBAIKAN: Menambahkan fallback || '' agar TypeScript yakin nilainya tidak undefined
+  const [model, setModel] = useState<string>(PROVIDERS[0]?.model || '');
+  const [baseUrl, setBaseUrl] = useState<string>(PROVIDERS[0]?.baseUrl || '');
+  
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
 
   const handleProviderChange = (providerId: string) => {
     const p = PROVIDERS.find((pr) => pr.id === providerId) ?? PROVIDERS[0];
-    setSelectedProvider(p);
-    setModel(p.model);
-    setBaseUrl(p.baseUrl);
+    if (p) {
+      setSelectedProvider(p);
+      setModel(p.model || '');
+      setBaseUrl(p.baseUrl || '');
+    }
   };
 
   const handleSave = async () => {
@@ -116,7 +121,7 @@ function ConfigDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () =
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-2">
             {PROVIDERS.map((p) => (
-              <button key={p.id} onClick={() => handleProviderChange(p.id)} className={`p-2 text-xs border rounded-lg ${selectedProvider.id === p.id ? 'bg-blue-50 border-blue-500' : ''}`}>
+              <button key={p.id} onClick={() => handleProviderChange(p.id)} className={`p-2 text-xs border rounded-lg ${selectedProvider?.id === p.id ? 'bg-blue-50 border-blue-500' : ''}`}>
                 {p.name}
               </button>
             ))}
@@ -131,7 +136,6 @@ function ConfigDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     </div>
   );
 }
-
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function PmoAiPage() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
