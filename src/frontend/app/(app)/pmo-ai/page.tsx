@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { API_URL, getAccessToken } from '../../../lib/api';
 
 // ── Configuration & Constants ────────────────────────────────────────────────
@@ -41,14 +41,6 @@ const PROVIDERS = [
 
 type AgentId = 'pm' | 'control' | 'quality';
 
-interface AgentInfo {
-  id: AgentId;
-  name: string;
-  role: string;
-  description: string;
-  color: string;
-}
-
 interface ChatEntry {
   role: 'user' | 'assistant';
   content: string;
@@ -56,26 +48,13 @@ interface ChatEntry {
   timestamp: Date;
 }
 
-const AGENT_COLORS: Record<AgentId, { bg: string; border: string; badge: string; dot: string }> = {
-  pm: { bg: 'bg-blue-50', border: 'border-blue-200', badge: 'bg-blue-100 text-blue-800', dot: 'bg-blue-500' },
-  control: { bg: 'bg-amber-50', border: 'border-amber-200', badge: 'bg-amber-100 text-amber-800', dot: 'bg-amber-500' },
-  quality: { bg: 'bg-emerald-50', border: 'border-emerald-200', badge: 'bg-emerald-100 text-emerald-800', dot: 'bg-emerald-500' },
-};
-
 const AGENT_ICONS: Record<AgentId, string> = { pm: '🎯', control: '📊', quality: '✅' };
-
-const AGENT_STARTERS: Record<AgentId, string[]> = {
-  pm: ['Apa project yang paling berisiko saat ini?', 'Berikan analisis titik kritis portfolio bulan ini.'],
-  control: ['Buat laporan exception report portfolio hari ini.', 'Milestone apa saja yang overdue?'],
-  quality: ['Periksa kesiapan handover project RFS.', 'Apa saja gap dokumentasi saat ini?'],
-};
 
 // ── Sub-Component: Config Dialog ─────────────────────────────────────────────
 function ConfigDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [selectedProvider, setSelectedProvider] = useState<any>(PROVIDERS[0]);
   const [apiKey, setApiKey] = useState('');
   
-  // PERBAIKAN: Menambahkan fallback || '' agar TypeScript yakin nilainya tidak undefined
   const [model, setModel] = useState<string>(PROVIDERS[0]?.model || '');
   const [baseUrl, setBaseUrl] = useState<string>(PROVIDERS[0]?.baseUrl || '');
   
@@ -136,10 +115,9 @@ function ConfigDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     </div>
   );
 }
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function PmoAiPage() {
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [configured, setConfigured] = useState<boolean | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<AgentId>('pm');
   const [messages, setMessages] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState('');
@@ -152,19 +130,12 @@ export default function PmoAiPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const refreshStatus = useCallback(() => {
-    fetch(`${API_URL}/v1/pmo-ai/agents`)
-      .then((r) => r.json())
-      .then((d: any) => { setAgents(d.agents); setConfigured(d.configured); })
-      .catch(() => setConfigured(false));
-  }, []);
-
-  useEffect(() => { refreshStatus(); }, [refreshStatus]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, streamingContent]);
-  useEffect(() => { setMessages(sessionHistories[selectedAgent]); }, [selectedAgent]);
+  useEffect(() => { setMessages(sessionHistories[selectedAgent]); setError(null); }, [selectedAgent, sessionHistories]);
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || streaming) return;
+    setError(null);
     const userEntry: ChatEntry = { role: 'user', content: text.trim(), timestamp: new Date() };
     const newMessages = [...messages, userEntry];
     setMessages(newMessages);
@@ -182,7 +153,7 @@ export default function PmoAiPage() {
         signal: abortRef.current.signal,
       });
 
-      if (!response.body) return;
+      if (!response.body) throw new Error('Tidak ada respon dari server AI');
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullContent = '';
@@ -194,10 +165,14 @@ export default function PmoAiPage() {
         const lines = chunk.split('\n');
         for (const line of lines) {
           if (line.startsWith('data:')) {
-            const parsed = JSON.parse(line.slice(5));
-            if (parsed.type === 'token') {
-              fullContent += parsed.content;
-              setStreamingContent(fullContent);
+            try {
+              const parsed = JSON.parse(line.slice(5));
+              if (parsed.type === 'token') {
+                fullContent += parsed.content;
+                setStreamingContent(fullContent);
+              }
+            } catch {
+              // Abaikan format JSON yang tidak valid dalam stream
             }
           }
         }
@@ -214,16 +189,20 @@ export default function PmoAiPage() {
     }
   };
 
-  const colors = AGENT_COLORS[selectedAgent];
-
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] bg-slate-50">
-      {showConfig && <ConfigDialog onClose={() => setShowConfig(false)} onSaved={() => { setShowConfig(false); refreshStatus(); }} />}
+      {showConfig && <ConfigDialog onClose={() => setShowConfig(false)} onSaved={() => setShowConfig(false)} />}
       
       <div className="bg-white border-b p-4 flex justify-between items-center shrink-0">
         <h1 className="font-bold text-lg">PMO AI Dashboard - DeliverIQ</h1>
         <button onClick={() => setShowConfig(true)} className="text-xs border p-2 rounded hover:bg-slate-50">⚙️ Config AI</button>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border-b border-red-200 p-2 text-center text-xs text-red-600 font-semibold">
+          ⚠️ {error}
+        </div>
+      )}
 
       <div className="flex gap-2 p-4 shrink-0 overflow-x-auto">
         {(['pm', 'control', 'quality'] as AgentId[]).map((id) => (
