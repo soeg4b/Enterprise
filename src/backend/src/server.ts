@@ -1,4 +1,7 @@
-// server.ts — Resilient Version for Cloud Run
+// =============================================================================
+// DeliverIQ — Fastify API server bootstrap (Resilient Cloud Run Edition)
+// =============================================================================
+
 import Fastify, { type FastifyInstance, type FastifyBaseLogger } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
@@ -14,7 +17,6 @@ import { HttpError } from './lib/errors.js';
 import { registerAuth } from './auth/auth.js';
 import { ensureBootstrapAdmin } from './bootstrap/admin.js';
 
-// ... (Import routes Bapak tetap sama seperti sebelumnya) ...
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { usersRoutes } from './modules/users/users.routes.js';
 import { ordersRoutes } from './modules/orders/orders.routes.js';
@@ -28,6 +30,14 @@ import { stubRoutes } from './modules/stubs.js';
 import { fiberProjectsRoutes } from './modules/fiber-projects/fiber-projects.routes.js';
 import { pmoAiRoutes } from './modules/pmo-ai/pmo-ai.routes.js';
 
+// Catch unhandled exceptions to prevent silent crashes in Cloud Run
+process.on('uncaughtException', (err) => {
+  console.error('🔥 FATAL UNCAUGHT EXCEPTION:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('🔥 FATAL UNHANDLED REJECTION:', reason);
+});
+
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: logger as unknown as FastifyBaseLogger,
@@ -39,10 +49,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024 } });
   await registerAuth(app);
 
-  // Health Checks
-  app.get('/healthz', async () => ({ status: 'ok' }));
+  app.get('/healthz', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
-  // Register Routes
   await app.register(authRoutes);
   await app.register(usersRoutes);
   await app.register(ordersRoutes);
@@ -61,20 +69,28 @@ export async function buildServer(): Promise<FastifyInstance> {
 }
 
 async function main() {
-  const app = await buildServer();
+  console.log("Starting initialization...");
+  
+  let app: FastifyInstance;
+  try {
+    app = await buildServer();
+  } catch (err) {
+    console.error("🔥 Error building server:", err);
+    process.exit(1);
+  }
+
+  // Wajib 0.0.0.0 untuk Docker / Cloud Run
   const port = Number(process.env.PORT) || 8080;
   const host = '0.0.0.0';
 
   try {
-    // LANGKAH 1: Nyalakan server secepat mungkin agar Cloud Run puas
     await app.listen({ port, host });
-    console.log(`🚀 DeliverIQ Dashboard Live on port ${port}`);
-
-    // LANGKAH 2: Jalankan bootstrap admin setelah server online (Non-blocking)
+    console.log(`🚀 DeliverIQ API Live on http://${host}:${port}`);
+    
+    // Background Admin Bootstrap
     ensureBootstrapAdmin().catch(err => console.error("Admin Bootstrap Error:", err));
-
   } catch (err) {
-    console.error('Fatal error during startup:', err);
+    console.error('🔥 Fatal error during app.listen:', err);
     process.exit(1);
   }
 }
