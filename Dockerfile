@@ -29,4 +29,4 @@ RUN npm run build:frontend && npm run build:backend
 EXPOSE 8080
 
 # Gunakan PORT dari environment variable agar Cloud Run bisa mendeteksi
-CMD ["sh", "-c", "npm run start:backend -- -p ${PORT:-8080}"]
+CMD ["npm", "run", "start:backend"]
