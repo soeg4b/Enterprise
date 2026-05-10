@@ -1,5 +1,5 @@
 // =============================================================================
-// DeliverIQ — Fastify API server bootstrap
+// DeliverIQ — Fastify API server bootstrap (Production Ready)
 // =============================================================================
 
 import Fastify, { type FastifyInstance, type FastifyBaseLogger } from 'fastify';
@@ -30,16 +30,17 @@ import { stubRoutes } from './modules/stubs.js';
 import { fiberProjectsRoutes } from './modules/fiber-projects/fiber-projects.routes.js';
 import { pmoAiRoutes } from './modules/pmo-ai/pmo-ai.routes.js';
 
-// Workers are optional — Redis 5+ required for BullMQ
+// Workers setup
 let startMilestoneWorker: (() => { close(): Promise<void> }) | null = null;
 let startImportWorker: (() => { close(): Promise<void> }) | null = null;
+
 try {
   const mw = await import('./workers/milestone.worker.js');
   const iw = await import('./workers/import.worker.js');
   startMilestoneWorker = mw.startMilestoneWorker;
   startImportWorker = iw.startImportWorker;
 } catch {
-  // Workers unavailable (e.g. Redis < 5)
+  // Workers unavailable
 }
 
 export async function buildServer(): Promise<FastifyInstance> {
@@ -50,7 +51,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     genReqId: () => randomUUID(),
   });
 
-  // Security headers (helmet-equivalent)
+  // Security headers
   app.addHook('onSend', async (req, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'DENY');
@@ -62,7 +63,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     reply.header('X-Request-Id', req.id);
   });
 
-  // CORS allowlist
+  // CORS config
   const origins = env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean);
   await app.register(cors, {
     origin: (origin, cb) => {
@@ -76,7 +77,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
   await registerAuth(app);
 
-  // Error handler — RFC 7807 envelope
+  // Global Error Handler
   app.setErrorHandler((err, req, reply) => {
     const requestId = req.id;
     if (err instanceof ZodError) {
@@ -102,7 +103,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     });
   });
 
-  // Health
+  // Health Checks
   app.get('/healthz', async () => ({ status: 'ok', time: new Date().toISOString() }));
   app.get('/readyz', async () => {
     try {
@@ -115,7 +116,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   });
 
-  // Routes
+  // Module Registration
   await app.register(authRoutes);
   await app.register(usersRoutes);
   await app.register(ordersRoutes);
@@ -147,13 +148,9 @@ async function main(): Promise<void> {
   const app = await buildServer();
   await ensureBootstrapAdmin();
 
-  // Start in-process workers only when Redis >= 5 (BullMQ requirement).
   const redisMajor = await redisVersionMajor();
-  if (redisMajor < 5) {
-    app.log.warn({ redisMajor }, 'Redis < 5 detected — BullMQ workers disabled. Upgrade Redis to enable background jobs.');
-  }
-  const milestoneWorker = (redisMajor >= 5 && startMilestoneWorker) ? startMilestoneWorker() : null;
-  const importWorker = (redisMajor >= 5 && startImportWorker) ? startImportWorker() : null;
+  const milestoneWorker = (redisMajor >= 5 && startMilestoneWorker) ? (startMilestoneWorker as any)() : null;
+  const importWorker = (redisMajor >= 5 && startImportWorker) ? (startImportWorker as any)() : null;
 
   const close = async (signal: string) => {
     app.log.info({ signal }, 'shutting down');
@@ -162,17 +159,25 @@ async function main(): Promise<void> {
     await prisma.$disconnect();
     process.exit(0);
   };
+  
   process.on('SIGINT', () => void close('SIGINT'));
   process.on('SIGTERM', () => void close('SIGTERM'));
 
-  const host = '0.0.0.0';
-  await app.listen({ port: env.PORT, host });
-  app.log.info(`API listening on http://${host}:${env.PORT}`);
+  // --- MODIFIKASI KRUSIAL UNTUK CLOUD RUN ---
+  const port = Number(process.env.PORT) || 8080;
+  const host = '0.0.0.0'; // Wajib 0.0.0.0 di dalam Docker/Cloud Run
+
+  try {
+    await app.listen({ port, host });
+    app.log.info(`Enterprise Dashboard Live on port ${port}`);
+  } catch (err) {
+    app.log.error(err);
+    process.exit(1);
+  }
 }
 
 if (process.env.NODE_ENV !== 'test') {
   main().catch((err) => {
-    // eslint-disable-next-line no-console
     console.error('fatal:', err);
     process.exit(1);
   });
