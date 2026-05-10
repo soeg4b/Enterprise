@@ -606,7 +606,7 @@ function ConfigDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 
   const handleProviderChange = (providerId: string) => {
     const p = PROVIDERS.find((pr) => pr.id === providerId) ?? PROVIDERS[0];
-    setSelectedProvider(p);
+    setSelectedProvider(p as any);
     setModel(p.model);
     setBaseUrl(p.baseUrl);
   };
