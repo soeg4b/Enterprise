@@ -18,7 +18,7 @@ RUN npm install
 COPY . .
 
 # 6. AUTO-DETECT: Mencari lokasi schema.prisma secara otomatis
-# Agar sistem tidak tersesat mencari folder backend/db, perintah ini akan mencarinya sendiri
+# Perintah ini akan mencari di mana pun file tersebut berada di dalam folder proyek
 RUN SCHEMA_PATH=$(find . -name "schema.prisma" | head -n 1) && \
     echo "Menemukan schema di: $SCHEMA_PATH" && \
     npx prisma generate --schema=$SCHEMA_PATH
