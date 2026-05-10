@@ -29,4 +29,4 @@ RUN npm run build:frontend && npm run build:backend
 EXPOSE 8080
 
 # 8. Jalankan layanan utama (Bypass npm scripts agar tidak error)
-CMD ["node", "src/backend/dist/server.js"]
+CMD ["npm", "run", "start", "-w", "deliveriq-backend"]
