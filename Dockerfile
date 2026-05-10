@@ -1,12 +1,12 @@
-# 1. Gunakan 'slim' untuk kompatibilitas OpenSSL yang lebih baik
+# 1. Gunakan versi 'slim' (Debian) agar lebih stabil dengan Prisma dan OpenSSL
 FROM node:20-slim
 
-# 2. Install library keamanan yang dibutuhkan Prisma
+# 2. Install library keamanan yang diwajibkan oleh Prisma
 RUN apt-get update -y && apt-get install -y openssl findutils
 
 WORKDIR /app
 
-# 3. Salin manajemen paket
+# 3. Salin file manajemen paket monorepo
 COPY package*.json ./
 COPY src/backend/package*.json ./src/backend/
 COPY src/frontend/package*.json ./src/frontend/
@@ -14,16 +14,16 @@ COPY src/frontend/package*.json ./src/frontend/
 # 4. Install dependencies bersih di lingkungan cloud
 RUN npm install
 
-# 5. Salin kode sumber
+# 5. Salin seluruh kode sumber proyek
 COPY . .
 
 # 6. AUTO-DETECT: Mencari lokasi schema.prisma secara otomatis
-# Agar tidak error 'file or directory not found' lagi
+# Agar sistem tidak tersesat mencari folder backend/db, perintah ini akan mencarinya sendiri
 RUN SCHEMA_PATH=$(find . -name "schema.prisma" | head -n 1) && \
-    echo "Schema ditemukan di: $SCHEMA_PATH" && \
+    echo "Menemukan schema di: $SCHEMA_PATH" && \
     npx prisma generate --schema=$SCHEMA_PATH
 
-# 7. Build Frontend dan Backend
+# 7. Build dashboard (Frontend) dan mesin (Backend)
 RUN npm run build:frontend && npm run build:backend
 
 EXPOSE 8080
