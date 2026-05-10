@@ -1,6 +1,4 @@
 // Milestone recompute worker — reads SOW + milestones, calls pure engine, persists.
-// Per-SOW concurrency=1 via job ID `recompute:{sowId}`.
-
 import { Worker } from 'bullmq';
 import { getRedis } from '../db/redis.js';
 import { prisma } from '../db/prisma.js';
@@ -41,15 +39,14 @@ export function startMilestoneWorker(): Worker {
       await prisma.sOW.update({
         where: { id: sowId },
         data: {
-          progressPct: progress.toString() as never,
+          progressPct: progress.toString() as any,
           gapDays: gap,
-          warningLevel: status,
+          warningLevel: status as any,
           warningReason: reasonStr,
           lastComputedAt: new Date(),
         },
       });
 
-      // Update per-milestone overdueDays
       await Promise.all(
         sow.milestones.map((m) =>
           prisma.milestone.update({
@@ -59,7 +56,6 @@ export function startMilestoneWorker(): Worker {
         ),
       );
 
-      // Mirror site rollups (group by site)
       const sites = sow.sites;
       for (const site of sites) {
         const siteMs = engineMs.filter((m) => sow.milestones.find((dbm) => dbm.type === m.type && dbm.siteId === site.id));
@@ -68,21 +64,19 @@ export function startMilestoneWorker(): Worker {
         await prisma.site.update({
           where: { id: site.id },
           data: {
-            progressPct: sp.toString() as never,
+            progressPct: sp.toString() as any,
             gapDays: gap,
-            warningLevel: sStatus,
+            warningLevel: sStatus as any,
             lastComputedAt: new Date(),
           },
         });
       }
 
-      // Cache invalidation
       await cache.invalidatePattern(cache.key('default', 'reports', '*'));
-
       logger.info({ sowId, reason, progress, gap, status }, 'milestone.recompute.done');
       return { sowId, progress, gap, status };
     },
-    { connection: getRedis() as never, concurrency: 4 },
+    { connection: getRedis() as any, concurrency: 4 },
   );
 
   worker.on('failed', (job, err) => {
