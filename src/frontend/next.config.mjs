@@ -7,7 +7,7 @@
 // strict CSP — see env-gated branch below. The connect-src origin is taken
 // from NEXT_PUBLIC_API_URL so deployments without a hard-coded API host still
 // work (fallback: same-origin only).
-const apiOrigin = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '');
+const apiOrigin = 'https://enterprise-git-276471302546.asia-southeast1.run.app';
 const isProd = process.env.NODE_ENV === 'production';
 
 // Allow OpenStreetMap tile servers (used by Leaflet) and the API origin so
