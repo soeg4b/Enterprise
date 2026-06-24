@@ -193,7 +193,7 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Save image artifact
         run: docker save "${{ steps.meta.outputs.image }}" -o backend-image.tar
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: backend-image
           path: backend-image.tar
@@ -299,7 +299,7 @@ jobs:
           npx --yes @cyclonedx/cyclonedx-npm \
             --output-file sbom.cdx.json \
             --output-format JSON || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom-cyclonedx
           path: sbom.cdx.json
