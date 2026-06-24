@@ -110,7 +110,7 @@ jobs:
       #   STAGING_DEPLOY_PATH (remote dir containing docker-compose.yml + .env)
       - name: SSH deploy via docker compose
         if: ${{ secrets.STAGING_SSH_HOST != '' }}
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.STAGING_SSH_HOST }}
           username: ${{ secrets.STAGING_SSH_USER }}
